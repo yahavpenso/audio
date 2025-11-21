@@ -9,6 +9,7 @@ interface WaveformVisualizationProps {
   onSelectionChange: (selection: AudioSelection | null) => void;
   zoom: number;
   isPlaying: boolean;
+  isLoading?: boolean;
 }
 
 export default function WaveformVisualization({
@@ -19,6 +20,7 @@ export default function WaveformVisualization({
   onSelectionChange,
   zoom,
   isPlaying,
+  isLoading = false,
 }: WaveformVisualizationProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -161,7 +163,17 @@ export default function WaveformVisualization({
   return (
     <div ref={containerRef} className="w-full">
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Waveform</h2>
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          Waveform
+          {isLoading && (
+            <span className="inline-block animate-spin">
+              <svg className="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            </span>
+          )}
+        </h2>
         {audioBuffer && (
           <div className="text-sm text-muted-foreground font-mono">
             {audioBuffer.duration.toFixed(2)}s • {audioBuffer.sampleRate}Hz • {audioBuffer.numberOfChannels}ch
@@ -169,19 +181,30 @@ export default function WaveformVisualization({
         )}
       </div>
       
-      <div className="bg-card border border-card-border rounded-md overflow-hidden">
+      <div className="bg-card border border-card-border rounded-md overflow-hidden relative">
+        {isLoading && (
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-muted/40 to-transparent animate-pulse z-10 rounded-md"></div>
+        )}
         <canvas
           ref={canvasRef}
-          className="w-full cursor-crosshair"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
+          className={`w-full ${!isLoading && audioBuffer ? 'cursor-crosshair' : 'cursor-wait'} ${isLoading ? 'opacity-50' : ''}`}
+          onMouseDown={!isLoading ? handleMouseDown : undefined}
+          onMouseMove={!isLoading ? handleMouseMove : undefined}
+          onMouseUp={!isLoading ? handleMouseUp : undefined}
+          onMouseLeave={!isLoading ? handleMouseUp : undefined}
           data-testid="canvas-waveform"
         />
+        {isLoading && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="text-center">
+              <div className="animate-bounce text-3xl mb-2">🎵</div>
+              <p className="text-sm text-muted-foreground font-medium">Loading audio...</p>
+            </div>
+          </div>
+        )}
       </div>
 
-      {selection && (
+      {selection && !isLoading && (
         <div className="mt-2 text-xs text-muted-foreground font-mono">
           Selection: {selection.startTime.toFixed(3)}s - {selection.endTime.toFixed(3)}s 
           ({(selection.endTime - selection.startTime).toFixed(3)}s)

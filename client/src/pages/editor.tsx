@@ -436,6 +436,7 @@ export default function Editor() {
                 onSelectionChange={handleSelectionChange}
                 zoom={state.zoom}
                 isPlaying={isPlaying}
+                isLoading={isLoading}
               />
 
               {/* Frequency Analyzer */}
