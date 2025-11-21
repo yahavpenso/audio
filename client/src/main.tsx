@@ -69,7 +69,7 @@ function setupConsoleLogging() {
 
   // Log performance metrics
   window.addEventListener('load', () => {
-    const perfData = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+    const perfData = performance.getEntriesByType('navigation')[0] as any;
     if (perfData) {
       console.log(`⏱ Page Load Metrics:`);
       console.log(`  - DNS: ${perfData.domainLookupEnd - perfData.domainLookupStart}ms`);

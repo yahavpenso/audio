@@ -28,7 +28,7 @@ function App() {
     console.log(`  Language: ${navigator.language}`);
     console.log(`  Timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`);
     console.log(`  Screen: ${window.innerWidth}x${window.innerHeight}`);
-    console.log(`  DevTools: ${window.devtools?.open || 'unknown'}`);
+    console.log(`  Environment: browser`);
     
     // Check for required APIs
     console.log(`🔍 Checking required APIs:`);
