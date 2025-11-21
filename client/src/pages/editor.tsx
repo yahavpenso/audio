@@ -4,6 +4,7 @@ import { Upload, Download, Undo2, Redo2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { AudioTrack, AudioEffect, AudioSelection, ExportSettings } from "@shared/schema";
 import { useHistory } from "@/hooks/useHistory";
+import { useLivePlayback } from "@/hooks/useLivePlayback";
 import WaveformVisualization from "@/components/WaveformVisualization";
 import PlaybackControls from "@/components/PlaybackControls";
 import TimelineEditor from "@/components/TimelineEditor";
@@ -40,6 +41,7 @@ export default function Editor() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const livePlaybackRef = useRef<ReturnType<typeof useLivePlayback> | null>(null);
   
   const { toast } = useToast();
 
@@ -50,6 +52,14 @@ export default function Editor() {
       audioContextRef.current?.close();
     };
   }, []);
+
+  // Setup live playback
+  const livePlayback = useLivePlayback(audioContextRef.current, state.tracks, trackBuffers, state.effects);
+  livePlaybackRef.current = livePlayback;
+
+  useEffect(() => {
+    setCurrentTime(livePlayback.currentTime);
+  }, [livePlayback.currentTime]);
 
   // Get total project duration
   const projectDuration = Math.max(...state.tracks.map(t => t.duration), 0) || 0;
@@ -102,11 +112,31 @@ export default function Editor() {
   }, []);
 
   const handleUpdateTrack = useCallback((id: string, updates: Partial<AudioTrack>) => {
+    // Update state
     setState(prevState => ({
       ...prevState,
       tracks: prevState.tracks.map(t => t.id === id ? { ...t, ...updates } : t),
     }));
-  }, [setState]);
+
+    // Apply live changes if playing
+    if (isPlaying && livePlaybackRef.current) {
+      const oldTrack = state.tracks.find(t => t.id === id);
+      if (!oldTrack) return;
+
+      if (updates.volume !== undefined && updates.volume !== oldTrack.volume) {
+        livePlaybackRef.current.updateTrackVolume(id, updates.volume);
+      }
+      if (updates.pan !== undefined && updates.pan !== oldTrack.pan) {
+        livePlaybackRef.current.updateTrackPan(id, updates.pan);
+      }
+      if (updates.isMuted !== undefined && updates.isMuted !== oldTrack.isMuted) {
+        livePlaybackRef.current.updateTrackMute(id, updates.isMuted);
+      }
+      if (updates.isSolo !== undefined && updates.isSolo !== oldTrack.isSolo) {
+        livePlaybackRef.current.updateTrackSolo();
+      }
+    }
+  }, [setState, state.tracks, isPlaying]);
 
   const handleRemoveTrack = useCallback((id: string) => {
     setState(prevState => ({
@@ -219,6 +249,14 @@ export default function Editor() {
     setShowExportModal(false);
   }, [state.tracks, state.effects, trackBuffers, toast]);
 
+  const handleLivePlay = useCallback((startTime: number) => {
+    livePlayback.start(startTime);
+  }, [livePlayback]);
+
+  const handleLiveStop = useCallback(() => {
+    livePlayback.stop();
+  }, [livePlayback]);
+
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Top Navigation */}
@@ -315,6 +353,8 @@ export default function Editor() {
                   onTimeUpdate={setCurrentTime}
                   onSeek={setCurrentTime}
                   sourceNodeRef={sourceNodeRef}
+                  onLivePlay={handleLivePlay}
+                  onLiveStop={handleLiveStop}
                 />
               </div>
             </div>

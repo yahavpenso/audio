@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, MutableRefObject } from "react";
+import { useCallback, useState, MutableRefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Play, Pause, Square, Volume2 } from "lucide-react";
@@ -15,6 +15,8 @@ interface PlaybackControlsProps {
   onTimeUpdate: (time: number) => void;
   onSeek: (time: number) => void;
   sourceNodeRef: MutableRefObject<AudioBufferSourceNode | null>;
+  onLivePlay?: (startTime: number) => void;
+  onLiveStop?: () => void;
 }
 
 export default function PlaybackControls({
@@ -28,48 +30,28 @@ export default function PlaybackControls({
   onTimeUpdate,
   onSeek,
   sourceNodeRef,
+  onLivePlay,
+  onLiveStop,
 }: PlaybackControlsProps) {
   const [volume, setVolume] = useState([80]);
 
-  const handlePlayPause = useCallback(async () => {
+  const handlePlayPause = useCallback(() => {
     if (!audioBuffer || !audioContext) return;
 
     if (isPlaying) {
-      if (sourceNodeRef.current) {
-        sourceNodeRef.current.stop();
-        sourceNodeRef.current.disconnect();
-      }
+      onLiveStop?.();
       onPlayPause(false);
     } else {
-      const { createRealtimeAudioSource } = await import("@/lib/audioProcessing");
-      const { source, gainNode } = createRealtimeAudioSource(
-        audioContext,
-        audioBuffer,
-        effects,
-        currentTime,
-        volume[0] / 100
-      );
-      
-      source.start(0, currentTime);
-      sourceNodeRef.current = source;
+      onLivePlay?.(currentTime);
       onPlayPause(true);
-      
-      source.onended = () => {
-        if (sourceNodeRef.current === source) {
-          onPlayPause(false);
-        }
-      };
     }
-  }, [audioBuffer, audioContext, isPlaying, currentTime, volume, effects, onPlayPause, sourceNodeRef]);
+  }, [audioBuffer, audioContext, isPlaying, currentTime, onLivePlay, onLiveStop, onPlayPause]);
 
   const handleStop = useCallback(() => {
-    if (sourceNodeRef.current) {
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-    }
+    onLiveStop?.();
     onPlayPause(false);
     onSeek(0);
-  }, [onPlayPause, onSeek, sourceNodeRef]);
+  }, [onLiveStop, onPlayPause, onSeek]);
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
