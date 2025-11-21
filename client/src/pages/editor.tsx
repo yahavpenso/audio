@@ -76,7 +76,6 @@ export default function Editor() {
       const newTrack: AudioTrack = {
         id: crypto.randomUUID(),
         name: file.name.replace(/\.[^/.]+$/, ""),
-        audioData,
         volume: 100,
         pan: 0,
         isMuted: false,
@@ -201,7 +200,7 @@ export default function Editor() {
     try {
       const trackData = await Promise.all(
         state.tracks.map(async (track) => ({
-          buffer: trackBuffers.get(track.id) || await decodeAudioTrack(audioContextRef.current!, track.audioData),
+          buffer: trackBuffers.get(track.id) || null,
           volume: track.volume,
           pan: track.pan,
           isMuted: track.isMuted,

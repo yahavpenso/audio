@@ -6,7 +6,7 @@ import { createInsertSchema } from "drizzle-zod";
 export interface AudioTrack {
   id: string;
   name: string;
-  audioData: string; // Base64 encoded
+  storageFileId?: string; // Reference to file in storage (instead of embedded data)
   volume: number; // 0-100
   pan: number; // -100 to 100
   isMuted: boolean;
@@ -14,6 +14,8 @@ export interface AudioTrack {
   duration: number;
   sampleRate: number;
   numberOfChannels: number;
+  fileSize?: number; // Size in bytes
+  uploadedAt?: string; // ISO timestamp
 }
 
 // Database tables
@@ -26,6 +28,7 @@ export const projectsTable = pgTable("projects", {
   effects: jsonb("effects").$type<AudioEffect[]>().default([]),
   selection: jsonb("selection").$type<AudioSelection | null>(),
   duration: doublePrecision("duration").default(0),
+  totalFileSize: doublePrecision("total_file_size").default(0), // Sum of all track files in bytes
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -116,11 +119,20 @@ export interface AudioSelection {
   endTime: number;
 }
 
+// File upload response from server
+export interface FileUploadResponse {
+  fileId: string;
+  fileName: string;
+  fileSize: number;
+  uploadedAt: string;
+  url?: string; // Optional: URL to retrieve the file
+}
+
 // Zod schemas for validation
 export const audioTrackSchema = z.object({
   id: z.string(),
   name: z.string(),
-  audioData: z.string(),
+  storageFileId: z.string().optional(),
   volume: z.number().min(0).max(100),
   pan: z.number().min(-100).max(100),
   isMuted: z.boolean(),
@@ -128,6 +140,8 @@ export const audioTrackSchema = z.object({
   duration: z.number().min(0),
   sampleRate: z.number(),
   numberOfChannels: z.number(),
+  fileSize: z.number().optional(),
+  uploadedAt: z.string().optional(),
 });
 
 export const panningEffectSchema = z.object({
@@ -203,3 +217,11 @@ export const mp3ExportSettingsSchema = z.object({
 });
 
 export const exportSettingsSchema = z.union([wavExportSettingsSchema, mp3ExportSettingsSchema]);
+
+export const fileUploadResponseSchema = z.object({
+  fileId: z.string(),
+  fileName: z.string(),
+  fileSize: z.number(),
+  uploadedAt: z.string(),
+  url: z.string().optional(),
+});
