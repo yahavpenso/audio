@@ -195,10 +195,13 @@ export default function WaveformVisualization({
           data-testid="canvas-waveform"
         />
         {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-bounce text-3xl mb-2">🎵</div>
-              <p className="text-sm text-muted-foreground font-medium">Loading audio...</p>
+          <div className="absolute inset-0 flex items-center justify-center bg-background/50 backdrop-blur-sm">
+            <div className="text-center space-y-3">
+              <div className="flex justify-center">
+                <div className="w-12 h-12 rounded-full border-4 border-primary/20 border-t-primary animate-spin"></div>
+              </div>
+              <p className="text-sm font-medium">Loading audio...</p>
+              <p className="text-xs text-muted-foreground">Decoding file...</p>
             </div>
           </div>
         )}

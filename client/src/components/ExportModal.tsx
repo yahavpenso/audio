@@ -14,15 +14,17 @@ interface ExportModalProps {
   audioFile: AudioFile;
   onClose: () => void;
   onExport: (settings: ExportSettings) => void;
+  isExporting?: boolean;
 }
 
-export default function ExportModal({ audioFile, onClose, onExport }: ExportModalProps) {
+export default function ExportModal({ audioFile, onClose, onExport, isExporting = false }: ExportModalProps) {
   const [format, setFormat] = useState<"wav" | "mp3">("wav");
   const [sampleRate, setSampleRate] = useState<number>(44100);
   const [bitDepth, setBitDepth] = useState<number>(16);
   const [bitrate, setBitrate] = useState([192]);
 
   const handleExport = () => {
+    if (isExporting) return;
     const settings: ExportSettings = format === "wav"
       ? { format: "wav", sampleRate, bitDepth }
       : { format: "mp3", bitrate: bitrate[0] };
@@ -199,12 +201,21 @@ export default function ExportModal({ audioFile, onClose, onExport }: ExportModa
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} data-testid="button-cancel-export">
+          <Button variant="outline" onClick={onClose} data-testid="button-cancel-export" disabled={isExporting}>
             Cancel
           </Button>
-          <Button onClick={handleExport} data-testid="button-confirm-export" className="gap-2">
-            <Download className="w-4 h-4" />
-            Export {format.toUpperCase()}
+          <Button onClick={handleExport} data-testid="button-confirm-export" className="gap-2" disabled={isExporting}>
+            {isExporting ? (
+              <>
+                <div className="w-4 h-4 rounded-full border-2 border-current/20 border-t-current animate-spin"></div>
+                Exporting...
+              </>
+            ) : (
+              <>
+                <Download className="w-4 h-4" />
+                Export {format.toUpperCase()}
+              </>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

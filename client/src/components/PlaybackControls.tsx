@@ -17,6 +17,7 @@ interface PlaybackControlsProps {
   sourceNodeRef: MutableRefObject<AudioBufferSourceNode | null>;
   onLivePlay?: (startTime: number) => void;
   onLiveStop?: () => void;
+  isLoading?: boolean;
 }
 
 export default function PlaybackControls({
@@ -32,6 +33,7 @@ export default function PlaybackControls({
   sourceNodeRef,
   onLivePlay,
   onLiveStop,
+  isLoading = false,
 }: PlaybackControlsProps) {
   const [volume, setVolume] = useState([80]);
 
@@ -61,13 +63,21 @@ export default function PlaybackControls({
   };
 
   return (
-    <div className="space-y-2 sm:space-y-4">
+    <div className="space-y-2 sm:space-y-4 relative">
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/50 backdrop-blur-sm rounded-md z-20">
+          <div className="text-center space-y-2">
+            <div className="w-8 h-8 rounded-full border-2 border-primary/20 border-t-primary animate-spin mx-auto"></div>
+            <p className="text-xs font-medium">Initializing...</p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-center gap-1 sm:gap-2">
         <Button
           variant="outline"
           size="icon"
           onClick={handleStop}
-          disabled={!audioBuffer}
+          disabled={!audioBuffer || isLoading}
           data-testid="button-stop"
           className="h-8 w-8 sm:h-10 sm:w-10"
           title="Stop (Space)"

@@ -46,6 +46,7 @@ export default function Editor() {
   const [currentTime, setCurrentTime] = useState(0);
   const [showExportModal, setShowExportModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   
@@ -245,6 +246,7 @@ export default function Editor() {
   const handleExport = useCallback(async (settings: ExportSettings) => {
     if (state.tracks.length === 0 || !audioContextRef.current) return;
     
+    setIsExporting(true);
     toast({
       title: "Exporting audio...",
       description: "Mixing and processing tracks",
@@ -310,9 +312,10 @@ export default function Editor() {
         title: "Export failed",
         variant: "destructive",
       });
+    } finally {
+      setIsExporting(false);
+      setShowExportModal(false);
     }
-    
-    setShowExportModal(false);
   }, [state.tracks, state.effects, trackBuffers, toast]);
 
   const handleLivePlay = useCallback((startTime: number) => {
@@ -456,6 +459,7 @@ export default function Editor() {
                   sourceNodeRef={sourceNodeRef}
                   onLivePlay={handleLivePlay}
                   onLiveStop={handleLiveStop}
+                  isLoading={isLoading}
                 />
               </div>
             </div>
