@@ -15,6 +15,8 @@ import ExportModal from "@/components/ExportModal";
 import EmptyState from "@/components/EmptyState";
 import LoadingOverlay from "@/components/LoadingOverlay";
 import InfoPanel from "@/components/InfoPanel";
+import ConsolePanel from "@/components/ConsolePanel";
+import StatsPanel from "@/components/StatsPanel";
 import { encodeAudioBuffer, decodeAudioTrack } from "@/lib/audioMixing";
 import { exportToWAV, exportToMP3, downloadBlob, mixAudioTracks } from "@/lib/audioProcessing";
 
@@ -53,10 +55,22 @@ export default function Editor() {
   // Initialize AudioContext
   useEffect(() => {
     audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    console.log("🎵 Audio Editor initialized");
+    console.log(`🔊 AudioContext state: ${audioContextRef.current?.state}`);
+    console.log(`📊 Sample rate: ${audioContextRef.current?.sampleRate}Hz`);
+    
     return () => {
       audioContextRef.current?.close();
+      console.log("🛑 Audio Editor closed");
     };
   }, []);
+
+  // Log user login
+  useEffect(() => {
+    if (user) {
+      console.log(`👤 User logged in: ${user.username}`);
+    }
+  }, [user]);
 
   // Setup live playback
   const livePlayback = useLivePlayback(audioContextRef.current, state.tracks, trackBuffers, state.effects);
@@ -106,6 +120,13 @@ export default function Editor() {
       
       setTrackBuffers(prev => new Map(prev).set(newTrack.id, audioBuffer));
       
+      // Log detailed track information
+      console.log(`✓ Track loaded: ${file.name}`);
+      console.log(`  Duration: ${audioBuffer.duration.toFixed(2)}s`);
+      console.log(`  Sample Rate: ${audioBuffer.sampleRate}Hz`);
+      console.log(`  Channels: ${audioBuffer.numberOfChannels}`);
+      console.log(`  File Size: ${(file.size / 1024).toFixed(2)}KB`);
+      
       toast({
         title: "✓ Track added successfully",
         description: `${file.name} - ${audioBuffer.duration.toFixed(2)}s at ${audioBuffer.sampleRate}Hz`,
@@ -154,6 +175,8 @@ export default function Editor() {
   }, [setState, state.tracks, isPlaying]);
 
   const handleRemoveTrack = useCallback((id: string) => {
+    const trackToRemove = state.tracks.find(t => t.id === id);
+    console.log(`🗑️ Track removed: ${trackToRemove?.name || "Unknown"}`);
     setState(prevState => ({
       ...prevState,
       tracks: prevState.tracks.filter(t => t.id !== id),
@@ -164,13 +187,16 @@ export default function Editor() {
       newMap.delete(id);
       return newMap;
     });
-  }, [setState]);
+  }, [setState, state.tracks]);
 
   const handleAddEffect = useCallback((effect: AudioEffect) => {
     setState(prevState => ({
       ...prevState,
       effects: [...prevState.effects, effect],
     }));
+    console.log(`⚡ Effect added: ${effect.type.toUpperCase()}`);
+    console.log(`  Start: ${effect.startTime.toFixed(2)}s`);
+    console.log(`  Duration: ${effect.duration.toFixed(2)}s`);
     toast({
       title: `${effect.type} effect added`,
       description: `Applied at ${effect.startTime.toFixed(2)}s`,
@@ -178,11 +204,13 @@ export default function Editor() {
   }, [setState, toast]);
 
   const handleRemoveEffect = useCallback((id: string) => {
+    const effectToRemove = state.effects.find(e => e.id === id);
+    console.log(`❌ Effect removed: ${effectToRemove?.type.toUpperCase() || "Unknown"}`);
     setState(prevState => ({
       ...prevState,
       effects: prevState.effects.filter(e => e.id !== id),
     }));
-  }, [setState]);
+  }, [setState, state.effects]);
 
   const handleSelectionChange = useCallback((selection: AudioSelection | null) => {
     setState(prevState => ({
@@ -468,6 +496,20 @@ export default function Editor() {
 
       {/* Loading Overlay */}
       <LoadingOverlay isVisible={isLoading} message="Processing audio..." />
+
+      {/* Stats Panel */}
+      <div className="hidden lg:block fixed right-4 bottom-56 max-w-sm max-h-96 overflow-y-auto z-30">
+        <StatsPanel 
+          tracks={state.tracks} 
+          effects={state.effects} 
+          duration={projectDuration}
+          isPlaying={isPlaying}
+          currentTime={currentTime}
+        />
+      </div>
+
+      {/* Console Panel */}
+      <ConsolePanel isOpen={true} />
     </div>
   );
 }
