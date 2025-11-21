@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Upload, Download, Undo2, Redo2 } from "lucide-react";
+import { Upload, Download, Undo2, Redo2, LogOut } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { AudioTrack, AudioEffect, AudioSelection, ExportSettings } from "@shared/schema";
 import { useHistory } from "@/hooks/useHistory";
 import { useLivePlayback } from "@/hooks/useLivePlayback";
@@ -12,6 +13,8 @@ import EffectsPanel from "@/components/EffectsPanel";
 import TrackList from "@/components/TrackList";
 import ExportModal from "@/components/ExportModal";
 import EmptyState from "@/components/EmptyState";
+import LoadingOverlay from "@/components/LoadingOverlay";
+import InfoPanel from "@/components/InfoPanel";
 import { encodeAudioBuffer, decodeAudioTrack } from "@/lib/audioMixing";
 import { exportToWAV, exportToMP3, downloadBlob, mixAudioTracks } from "@/lib/audioProcessing";
 
@@ -37,6 +40,7 @@ export default function Editor() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
@@ -44,6 +48,7 @@ export default function Editor() {
   const livePlaybackRef = useRef<ReturnType<typeof useLivePlayback> | null>(null);
   
   const { toast } = useToast();
+  const { user, logout } = useAuth();
 
   // Initialize AudioContext
   useEffect(() => {
@@ -68,7 +73,13 @@ export default function Editor() {
     const file = event.target.files?.[0];
     if (!file || !audioContextRef.current) return;
 
+    setIsLoading(true);
     try {
+      toast({
+        title: "Loading audio...",
+        description: `Processing ${file.name}`,
+      });
+
       const arrayBuffer = await file.arrayBuffer();
       const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
       const audioData = await encodeAudioBuffer(audioBuffer);
@@ -83,6 +94,8 @@ export default function Editor() {
         duration: audioBuffer.duration,
         sampleRate: audioBuffer.sampleRate,
         numberOfChannels: audioBuffer.numberOfChannels,
+        fileSize: file.size,
+        uploadedAt: new Date().toISOString(),
       };
 
       setState(prevState => ({
@@ -94,15 +107,18 @@ export default function Editor() {
       setTrackBuffers(prev => new Map(prev).set(newTrack.id, audioBuffer));
       
       toast({
-        title: "Track added",
-        description: `${file.name} (${audioBuffer.duration.toFixed(2)}s)`,
+        title: "✓ Track added successfully",
+        description: `${file.name} - ${audioBuffer.duration.toFixed(2)}s at ${audioBuffer.sampleRate}Hz`,
       });
     } catch (error) {
+      console.error("Audio load error:", error);
       toast({
-        title: "Error loading audio",
-        description: "Could not decode audio file.",
+        title: "✗ Error loading audio",
+        description: "Could not decode audio file. Please check the format.",
         variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
   }, [setState, toast]);
 
@@ -274,11 +290,14 @@ export default function Editor() {
     <div className="flex flex-col h-screen bg-background">
       {/* Top Navigation */}
       <header className="h-12 sm:h-14 lg:h-16 border-b border-border flex items-center justify-between px-2 sm:px-4 lg:px-6">
-        <div className="flex items-center gap-1 sm:gap-3 min-w-0">
+        <div className="flex items-center gap-1 sm:gap-3 min-w-0 flex-1">
           <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-md bg-primary flex-shrink-0 flex items-center justify-center">
             <span className="text-primary-foreground font-semibold text-sm sm:text-lg">A</span>
           </div>
-          <h1 className="text-base sm:text-lg lg:text-xl font-semibold tracking-tight truncate">Audio Editor</h1>
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-lg lg:text-xl font-semibold tracking-tight truncate">Audio Editor</h1>
+            {user && <p className="text-xs text-muted-foreground">Welcome, {user.username}</p>}
+          </div>
           <span className="hidden sm:inline text-xs text-muted-foreground ml-2 lg:ml-4">{state.tracks.length} tracks</span>
         </div>
         
@@ -340,6 +359,18 @@ export default function Editor() {
               <span className="hidden sm:inline ml-1">Export</span>
             </Button>
           )}
+
+          <Button
+            onClick={logout}
+            variant="outline"
+            size="sm"
+            className="h-8 sm:h-9 text-xs sm:text-sm"
+            data-testid="button-logout"
+            title="Logout"
+          >
+            <LogOut className="w-3 h-3 sm:w-4 sm:h-4" />
+            <span className="hidden sm:inline ml-1">Logout</span>
+          </Button>
         </div>
       </header>
 
@@ -395,6 +426,8 @@ export default function Editor() {
           {/* Right Sidebar - hidden on mobile */}
           <div className="hidden lg:flex w-64 xl:w-80 border-l border-border flex-col overflow-hidden bg-card">
             <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 sm:space-y-6">
+              <InfoPanel tracks={state.tracks} duration={state.tracks.length > 0 ? Math.max(...state.tracks.map(t => t.duration)) : 0} username={user?.username} />
+
               <div>
                 <h3 className="text-xs sm:text-sm font-semibold mb-3">Tracks</h3>
                 <TrackList
@@ -432,6 +465,9 @@ export default function Editor() {
 
       {/* Keyboard Shortcuts */}
       <KeyboardShortcuts onUndo={undo} onRedo={redo} canUndo={canUndo} canRedo={canRedo} />
+
+      {/* Loading Overlay */}
+      <LoadingOverlay isVisible={isLoading} message="Processing audio..." />
     </div>
   );
 }
