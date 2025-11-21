@@ -25,21 +25,22 @@ export default function TrackList({
   onSelectTrack,
 }: TrackListProps) {
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Tracks ({tracks.length})</h3>
+    <div className="space-y-1 sm:space-y-2">
+      <div className="flex items-center justify-between gap-1">
+        <h3 className="text-xs sm:text-sm font-semibold">({tracks.length})</h3>
         <Button
           onClick={onAddTrack}
           size="sm"
           variant="outline"
-          className="text-xs"
+          className="text-xs h-7 sm:h-8"
           data-testid="button-add-track"
         >
-          <Music className="w-3 h-3" /> Add Track
+          <Music className="w-3 h-3" /> 
+          <span className="hidden sm:inline ml-1">Track</span>
         </Button>
       </div>
 
-      <div className="space-y-2 max-h-96 overflow-y-auto">
+      <div className="space-y-1 sm:space-y-2 max-h-48 sm:max-h-80 lg:max-h-96 overflow-y-auto">
         {tracks.length === 0 ? (
           <motion.p
             initial={{ opacity: 0 }}

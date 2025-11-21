@@ -264,16 +264,16 @@ export default function Editor() {
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Top Navigation */}
-      <header className="h-16 border-b border-border flex items-center justify-between px-6">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-semibold text-lg">A</span>
+      <header className="h-12 sm:h-14 lg:h-16 border-b border-border flex items-center justify-between px-2 sm:px-4 lg:px-6">
+        <div className="flex items-center gap-1 sm:gap-3 min-w-0">
+          <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-md bg-primary flex-shrink-0 flex items-center justify-center">
+            <span className="text-primary-foreground font-semibold text-sm sm:text-lg">A</span>
           </div>
-          <h1 className="text-xl font-semibold tracking-tight">Audio Editor</h1>
-          <span className="text-xs text-muted-foreground ml-4">{state.tracks.length} tracks</span>
+          <h1 className="text-base sm:text-lg lg:text-xl font-semibold tracking-tight truncate">Audio Editor</h1>
+          <span className="hidden sm:inline text-xs text-muted-foreground ml-2 lg:ml-4">{state.tracks.length} tracks</span>
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
           <Button
             onClick={undo}
             disabled={!canUndo}
@@ -281,8 +281,9 @@ export default function Editor() {
             size="icon"
             data-testid="button-undo"
             title="Undo (Ctrl+Z)"
+            className="h-8 w-8 sm:h-9 sm:w-9"
           >
-            <Undo2 className="w-4 h-4" />
+            <Undo2 className="w-3 h-3 sm:w-4 sm:h-4" />
           </Button>
           
           <Button
@@ -292,11 +293,12 @@ export default function Editor() {
             size="icon"
             data-testid="button-redo"
             title="Redo (Ctrl+Y)"
+            className="h-8 w-8 sm:h-9 sm:w-9"
           >
-            <Redo2 className="w-4 h-4" />
+            <Redo2 className="w-3 h-3 sm:w-4 sm:h-4" />
           </Button>
 
-          <div className="w-px h-6 bg-border" />
+          <div className="w-px h-5 sm:h-6 bg-border hidden sm:block" />
 
           <input
             ref={fileInputRef}
@@ -309,19 +311,24 @@ export default function Editor() {
           <Button
             onClick={handleAddTrack}
             variant="outline"
+            size="sm"
+            className="h-8 sm:h-9 text-xs sm:text-sm"
             data-testid="button-add-track"
           >
-            <Upload className="w-4 h-4" />
-            Add Track
+            <Upload className="w-3 h-3 sm:w-4 sm:h-4" />
+            <span className="hidden sm:inline ml-1">Add</span>
+            <span className="sm:hidden">+</span>
           </Button>
 
           {state.tracks.length > 0 && (
             <Button
               onClick={() => setShowExportModal(true)}
+              size="sm"
+              className="h-8 sm:h-9 text-xs sm:text-sm"
               data-testid="button-export"
             >
-              <Download className="w-4 h-4" />
-              Export
+              <Download className="w-3 h-3 sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline ml-1">Export</span>
             </Button>
           )}
         </div>
@@ -334,7 +341,7 @@ export default function Editor() {
           {/* Main Content Area */}
           <div className="flex-1 overflow-hidden flex flex-col">
             {/* Waveform and Playback */}
-            <div className="flex-1 border-b border-border overflow-hidden flex flex-col p-6">
+            <div className="flex-1 border-b border-border overflow-hidden flex flex-col p-2 sm:p-4 lg:p-6">
               <WaveformVisualization
                 audioBuffer={trackBuffers.get(state.selectedTrackId || "") || null}
                 currentTime={currentTime}
@@ -345,7 +352,7 @@ export default function Editor() {
                 isPlaying={isPlaying}
               />
               
-              <div className="mt-6">
+              <div className="mt-3 sm:mt-4 lg:mt-6">
                 <PlaybackControls
                   audioBuffer={trackBuffers.get(state.selectedTrackId || "") || null}
                   audioContext={audioContextRef.current}
@@ -364,7 +371,7 @@ export default function Editor() {
             </div>
 
             {/* Timeline */}
-            <div className="h-32 border-t border-border">
+            <div className="h-24 sm:h-28 lg:h-32 border-t border-border">
               <TimelineEditor
                 duration={projectDuration}
                 currentTime={currentTime}
@@ -376,19 +383,22 @@ export default function Editor() {
             </div>
           </div>
 
-          {/* Right Sidebar */}
-          <div className="w-80 border-l border-border flex flex-col overflow-hidden bg-card">
-            <div className="flex-1 overflow-y-auto p-4 space-y-6">
-              <TrackList
-                tracks={state.tracks}
-                onUpdateTrack={handleUpdateTrack}
-                onRemoveTrack={handleRemoveTrack}
-                onAddTrack={handleAddTrack}
-                selectedTrackId={state.selectedTrackId}
-                onSelectTrack={handleSelectTrack}
-              />
+          {/* Right Sidebar - hidden on mobile */}
+          <div className="hidden lg:flex w-64 xl:w-80 border-l border-border flex-col overflow-hidden bg-card">
+            <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 sm:space-y-6">
+              <div>
+                <h3 className="text-xs sm:text-sm font-semibold mb-3">Tracks</h3>
+                <TrackList
+                  tracks={state.tracks}
+                  onUpdateTrack={handleUpdateTrack}
+                  onRemoveTrack={handleRemoveTrack}
+                  onAddTrack={handleAddTrack}
+                  selectedTrackId={state.selectedTrackId}
+                  onSelectTrack={handleSelectTrack}
+                />
+              </div>
               
-              <div className="border-t pt-4">
+              <div className="border-t pt-3 sm:pt-4">
                 <EffectsPanel
                   duration={projectDuration}
                   currentTime={currentTime}

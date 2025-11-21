@@ -58,16 +58,16 @@ export default function EffectsPanel({
   const isValidDuration = (dur: number) => currentTime + dur <= duration;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2 sm:space-y-4">
       <div className="flex items-center gap-2">
-        <Zap className="w-4 h-4 text-chart-1" />
-        <h3 className="font-semibold text-sm">Audio Effects</h3>
+        <Zap className="w-3 h-3 sm:w-4 sm:h-4 text-chart-1" />
+        <h3 className="font-semibold text-xs sm:text-sm">Effects</h3>
       </div>
 
       <Separator />
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid grid-cols-5 w-full gap-1">
+        <TabsList className="grid grid-cols-5 w-full gap-0.5 sm:gap-1 h-8 sm:h-9">
           <TabsTrigger value="panning" className="text-xs">Pan</TabsTrigger>
           <TabsTrigger value="reverb" className="text-xs">Rev</TabsTrigger>
           <TabsTrigger value="delay" className="text-xs">Dly</TabsTrigger>
