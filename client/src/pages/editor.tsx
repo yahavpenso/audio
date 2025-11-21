@@ -60,13 +60,9 @@ export default function Editor() {
   // Initialize AudioContext
   useEffect(() => {
     audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    console.log("🎵 Audio Editor initialized");
-    console.log(`🔊 AudioContext state: ${audioContextRef.current?.state}`);
-    console.log(`📊 Sample rate: ${audioContextRef.current?.sampleRate}Hz`);
     
     return () => {
       audioContextRef.current?.close();
-      console.log("🛑 Audio Editor closed");
     };
   }, []);
 
@@ -534,8 +530,8 @@ export default function Editor() {
         />
       </div>
 
-      {/* Console Panel */}
-      <ConsolePanel isOpen={true} />
+      {/* Console Panel - Hidden by default for performance */}
+      <ConsolePanel isOpen={false} />
 
       {/* Modals */}
       <KeyboardShortcutsModal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />

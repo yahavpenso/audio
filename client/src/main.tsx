@@ -2,72 +2,84 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
 
-// Intercept and relay console logs to server
+// Batch logging to reduce network overhead
 function setupConsoleLogging() {
   const originalLog = console.log;
   const originalError = console.error;
   const originalWarn = console.warn;
   const originalInfo = console.info;
+  
+  let logQueue: any[] = [];
+  let sendTimeout: NodeJS.Timeout | null = null;
 
-  async function sendLogToServer(level: string, args: any[]) {
+  async function flushLogs() {
+    if (logQueue.length === 0) return;
+    
     try {
-      const messages = args.map(arg => {
-        if (typeof arg === "object") {
-          try {
-            return JSON.stringify(arg);
-          } catch {
-            return String(arg);
-          }
-        }
-        return String(arg);
-      });
-
+      const batch = logQueue.splice(0, logQueue.length);
       await fetch("/api/logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          level,
-          messages,
+          batch,
           timestamp: new Date().toISOString(),
           userAgent: navigator.userAgent,
           url: window.location.href,
-          memory: (performance as any).memory ? {
-            jsHeapSizeLimit: ((performance as any).memory.jsHeapSizeLimit / 1048576).toFixed(2) + 'MB',
-            totalJSHeapSize: ((performance as any).memory.totalJSHeapSize / 1048576).toFixed(2) + 'MB',
-            usedJSHeapSize: ((performance as any).memory.usedJSHeapSize / 1048576).toFixed(2) + 'MB'
-          } : null
         })
-      }).catch(() => {}); // Silently ignore network errors
+      }).catch(() => {});
     } catch {}
+  }
+
+  function queueLog(level: string, args: any[]) {
+    const messages = args.map(arg => {
+      if (typeof arg === "object") {
+        try {
+          return JSON.stringify(arg);
+        } catch {
+          return String(arg);
+        }
+      }
+      return String(arg);
+    });
+
+    logQueue.push({ level, messages, timestamp: new Date().toISOString() });
+    
+    if (sendTimeout) clearTimeout(sendTimeout);
+    sendTimeout = setTimeout(() => flushLogs(), 2000);
   }
 
   console.log = function (...args: any[]) {
     originalLog.apply(console, args);
-    sendLogToServer("log", args);
+    if (!args[0]?.includes?.('resized')) queueLog("log", args);
   };
 
   console.error = function (...args: any[]) {
     originalError.apply(console, args);
-    sendLogToServer("error", args);
+    queueLog("error", args);
   };
 
   console.warn = function (...args: any[]) {
     originalWarn.apply(console, args);
-    sendLogToServer("warn", args);
+    queueLog("warn", args);
   };
 
   console.info = function (...args: any[]) {
     originalInfo.apply(console, args);
-    sendLogToServer("info", args);
+    queueLog("info", args);
   };
 
-  // Log page visibility events
+  // Log page visibility events (throttled)
+  let lastVisibilityLog = 0;
   document.addEventListener('visibilitychange', () => {
-    const state = document.hidden ? 'hidden' : 'visible';
-    console.log(`📱 Page visibility changed: ${state}`);
+    const now = Date.now();
+    if (now - lastVisibilityLog > 1000) {
+      lastVisibilityLog = now;
+      const state = document.hidden ? 'hidden' : 'visible';
+      console.log(`📱 Page visibility changed: ${state}`);
+    }
   });
 
-  // Log performance metrics
+  // Log performance metrics once
   window.addEventListener('load', () => {
     const perfData = performance.getEntriesByType('navigation')[0] as any;
     if (perfData) {
@@ -89,6 +101,9 @@ function setupConsoleLogging() {
   window.addEventListener('unhandledrejection', (event) => {
     console.error(`❌ Unhandled promise rejection: ${event.reason}`);
   });
+
+  // Flush on unload
+  window.addEventListener('beforeunload', () => flushLogs());
 }
 
 // Setup console logging before rendering

@@ -28,17 +28,26 @@ export default function WaveformVisualization({
   const [dragStart, setDragStart] = useState<number | null>(null);
   const [canvasWidth, setCanvasWidth] = useState(0);
 
-  // Update canvas width on resize
+  // Update canvas width on resize (throttled)
   useEffect(() => {
+    let resizeTimeout: NodeJS.Timeout;
     const updateWidth = () => {
       if (containerRef.current) {
         setCanvasWidth(containerRef.current.offsetWidth);
       }
     };
     
+    const handleResize = () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(updateWidth, 150);
+    };
+    
     updateWidth();
-    window.addEventListener('resize', updateWidth);
-    return () => window.removeEventListener('resize', updateWidth);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(resizeTimeout);
+    };
   }, []);
 
   // Draw waveform
