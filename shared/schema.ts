@@ -1,4 +1,27 @@
 import { z } from "zod";
+import { pgTable, text, integer, timestamp, jsonb, doublePrecision } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+
+// Database tables
+export const projectsTable = pgTable("projects", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().default("default"),
+  name: text("name").notNull(),
+  description: text("description"),
+  audioFileName: text("audio_file_name"),
+  duration: doublePrecision("duration").default(0),
+  sampleRate: integer("sample_rate"),
+  numberOfChannels: integer("number_of_channels"),
+  audioData: text("audio_data"),
+  effects: jsonb("effects").$type<AudioEffect[]>().default([]),
+  selection: jsonb("selection").$type<AudioSelection | null>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type ProjectRow = typeof projectsTable.$inferSelect;
+export const projectInsertSchema = createInsertSchema(projectsTable);
+export type ProjectInsert = z.infer<typeof projectInsertSchema>;
 
 // Audio file metadata
 export interface AudioFile {
@@ -9,26 +32,69 @@ export interface AudioFile {
   numberOfChannels: number;
 }
 
-// Panning effect instance
+// Unified effect type system
 export interface PanningEffect {
   id: string;
-  startTime: number; // in seconds
-  duration: number; // in seconds
-  intensity: number; // 0-100 (percentage)
+  type: "panning";
+  startTime: number;
+  duration: number;
+  intensity: number; // 0-100
 }
+
+export interface ReverbEffect {
+  id: string;
+  type: "reverb";
+  startTime: number;
+  duration: number;
+  dryWet: number; // 0-100 (mix)
+  decay: number; // 0.1-10 seconds
+}
+
+export interface DelayEffect {
+  id: string;
+  type: "delay";
+  startTime: number;
+  duration: number;
+  dryWet: number; // 0-100 (mix)
+  delayTime: number; // 0.05-2 seconds
+  feedback: number; // 0-80%
+}
+
+export interface EQEffect {
+  id: string;
+  type: "eq";
+  startTime: number;
+  duration: number;
+  lowGain: number; // -12 to +12 dB
+  midGain: number; // -12 to +12 dB
+  highGain: number; // -12 to +12 dB
+}
+
+export interface CompressorEffect {
+  id: string;
+  type: "compressor";
+  startTime: number;
+  duration: number;
+  threshold: number; // -100 to 0 dB
+  ratio: number; // 1 to 20
+  attack: number; // 0 to 1 seconds
+  release: number; // 0 to 1 seconds
+}
+
+export type AudioEffect = PanningEffect | ReverbEffect | DelayEffect | EQEffect | CompressorEffect;
 
 // Export format options
 export type ExportFormat = "wav" | "mp3";
 
 export interface WavExportSettings {
   format: "wav";
-  sampleRate: number; // 44100, 48000
-  bitDepth: number; // 16, 24, 32
+  sampleRate: number;
+  bitDepth: number;
 }
 
 export interface Mp3ExportSettings {
   format: "mp3";
-  bitrate: number; // 128, 192, 256, 320 kbps
+  bitrate: number;
 }
 
 export type ExportSettings = WavExportSettings | Mp3ExportSettings;
@@ -42,9 +108,63 @@ export interface AudioSelection {
 // Zod schemas for validation
 export const panningEffectSchema = z.object({
   id: z.string(),
+  type: z.literal("panning"),
   startTime: z.number().min(0),
   duration: z.number().min(0.1).max(10),
   intensity: z.number().min(0).max(100),
+});
+
+export const reverbEffectSchema = z.object({
+  id: z.string(),
+  type: z.literal("reverb"),
+  startTime: z.number().min(0),
+  duration: z.number().min(0.1),
+  dryWet: z.number().min(0).max(100),
+  decay: z.number().min(0.1).max(10),
+});
+
+export const delayEffectSchema = z.object({
+  id: z.string(),
+  type: z.literal("delay"),
+  startTime: z.number().min(0),
+  duration: z.number().min(0.1),
+  dryWet: z.number().min(0).max(100),
+  delayTime: z.number().min(0.05).max(2),
+  feedback: z.number().min(0).max(80),
+});
+
+export const eqEffectSchema = z.object({
+  id: z.string(),
+  type: z.literal("eq"),
+  startTime: z.number().min(0),
+  duration: z.number().min(0.1),
+  lowGain: z.number().min(-12).max(12),
+  midGain: z.number().min(-12).max(12),
+  highGain: z.number().min(-12).max(12),
+});
+
+export const compressorEffectSchema = z.object({
+  id: z.string(),
+  type: z.literal("compressor"),
+  startTime: z.number().min(0),
+  duration: z.number().min(0.1),
+  threshold: z.number().min(-100).max(0),
+  ratio: z.number().min(1).max(20),
+  attack: z.number().min(0).max(1),
+  release: z.number().min(0).max(1),
+});
+
+export const audioEffectSchema = z.union([
+  panningEffectSchema,
+  reverbEffectSchema,
+  delayEffectSchema,
+  eqEffectSchema,
+  compressorEffectSchema,
+]);
+
+export const audioSelectionSchema = z.object({
+  startTime: z.number().min(0),
+  endTime: z.number().min(0),
 });
 
 export const wavExportSettingsSchema = z.object({
@@ -59,6 +179,3 @@ export const mp3ExportSettingsSchema = z.object({
 });
 
 export const exportSettingsSchema = z.union([wavExportSettingsSchema, mp3ExportSettingsSchema]);
-
-export type InsertPanningEffect = z.infer<typeof panningEffectSchema>;
-export type ExportSettingsInput = z.infer<typeof exportSettingsSchema>;

@@ -1,66 +1,171 @@
-import { PanningEffect } from "@shared/schema";
+import { AudioEffect, PanningEffect } from "@shared/schema";
 import lamejs from "lamejs";
 
 /**
- * Apply panning effects to an audio buffer using Web Audio API
- * Returns a new AudioBuffer with effects applied
+ * Apply all audio effects to an audio buffer
  */
-export async function applyPanningEffects(
+export async function applyAllEffects(
   audioBuffer: AudioBuffer,
-  effects: PanningEffect[]
+  effects: AudioEffect[]
 ): Promise<AudioBuffer> {
   if (effects.length === 0) {
     return audioBuffer;
   }
 
-  // Create offline context for processing
   const offlineContext = new OfflineAudioContext(
     audioBuffer.numberOfChannels,
     audioBuffer.length,
     audioBuffer.sampleRate
   );
 
-  // Create source
   const source = offlineContext.createBufferSource();
   source.buffer = audioBuffer;
 
-  // Create stereo panner nodes for each effect
+  // Create effect chains
+  let prevNode: AudioNode = source;
+
+  // Apply each effect type
   const sortedEffects = [...effects].sort((a, b) => a.startTime - b.startTime);
   
-  // Create main panner node
-  const pannerNode = offlineContext.createStereoPanner();
-  
-  // Schedule panning automation
-  sortedEffects.forEach(effect => {
-    const startTime = effect.startTime;
-    const endTime = effect.startTime + effect.duration;
-    const panValue = (effect.intensity / 100) * 2 - 1; // Convert 0-100 to -1 to 1
-    
-    // Set panning value for the duration of the effect
-    pannerNode.pan.setValueAtTime(0, startTime);
-    pannerNode.pan.linearRampToValueAtTime(panValue, startTime + effect.duration * 0.25);
-    pannerNode.pan.setValueAtTime(panValue, startTime + effect.duration * 0.75);
-    pannerNode.pan.linearRampToValueAtTime(0, endTime);
-  });
+  for (const effect of sortedEffects) {
+    if (effect.type === "panning") {
+      prevNode = createPanningEffect(offlineContext, prevNode, effect as PanningEffect);
+    } else if (effect.type === "reverb") {
+      prevNode = createReverbEffect(offlineContext, prevNode, effect);
+    } else if (effect.type === "delay") {
+      prevNode = createDelayEffect(offlineContext, prevNode, effect);
+    } else if (effect.type === "eq") {
+      prevNode = createEQEffect(offlineContext, prevNode, effect);
+    } else if (effect.type === "compressor") {
+      prevNode = createCompressorEffect(offlineContext, prevNode, effect);
+    }
+  }
 
-  // Connect nodes
-  source.connect(pannerNode);
-  pannerNode.connect(offlineContext.destination);
-
-  // Start processing
+  prevNode.connect(offlineContext.destination);
   source.start(0);
 
-  // Render and return result
   return await offlineContext.startRendering();
 }
 
+function createPanningEffect(ctx: AudioContext | OfflineAudioContext, input: AudioNode, effect: any): AudioNode {
+  const panner = ctx.createStereoPanner();
+  const panValue = (effect.intensity / 100) * 2 - 1;
+  
+  panner.pan.setValueAtTime(0, effect.startTime);
+  panner.pan.linearRampToValueAtTime(panValue, effect.startTime + effect.duration * 0.25);
+  panner.pan.setValueAtTime(panValue, effect.startTime + effect.duration * 0.75);
+  panner.pan.linearRampToValueAtTime(0, effect.startTime + effect.duration);
+  
+  input.connect(panner);
+  return panner;
+}
+
+function createReverbEffect(ctx: AudioContext | OfflineAudioContext, input: AudioNode, effect: any): AudioNode {
+  const dryGain = ctx.createGain();
+  const wetGain = ctx.createGain();
+  const convolverGain = ctx.createGain();
+  
+  const wetAmount = effect.dryWet / 100;
+  dryGain.gain.value = 1 - wetAmount;
+  wetGain.gain.value = wetAmount;
+  
+  // Create simple reverb using delay and feedback
+  const delay = ctx.createDelay(effect.decay);
+  const feedback = ctx.createGain();
+  feedback.gain.value = 0.3;
+  
+  delay.delayTime.value = effect.decay / 4;
+  
+  input.connect(dryGain);
+  input.connect(delay);
+  delay.connect(feedback);
+  feedback.connect(delay);
+  delay.connect(wetGain);
+  
+  // Merge dry and wet
+  const merge = ctx.createGain();
+  dryGain.connect(merge);
+  wetGain.connect(merge);
+  
+  return merge;
+}
+
+function createDelayEffect(ctx: AudioContext | OfflineAudioContext, input: AudioNode, effect: any): AudioNode {
+  const dryGain = ctx.createGain();
+  const wetGain = ctx.createGain();
+  const delayNode = ctx.createDelay(effect.delayTime * 2);
+  const feedbackGain = ctx.createGain();
+  
+  const wetAmount = effect.dryWet / 100;
+  dryGain.gain.value = 1 - wetAmount;
+  wetGain.gain.value = wetAmount;
+  feedbackGain.gain.value = effect.feedback / 100;
+  
+  delayNode.delayTime.value = effect.delayTime;
+  
+  input.connect(dryGain);
+  input.connect(delayNode);
+  delayNode.connect(feedbackGain);
+  feedbackGain.connect(delayNode);
+  delayNode.connect(wetGain);
+  
+  const merge = ctx.createGain();
+  dryGain.connect(merge);
+  wetGain.connect(merge);
+  
+  return merge;
+}
+
+function createEQEffect(ctx: AudioContext | OfflineAudioContext, input: AudioNode, effect: any): AudioNode {
+  const lowShelf = ctx.createBiquadFilter();
+  const mid = ctx.createBiquadFilter();
+  const highShelf = ctx.createBiquadFilter();
+  
+  // Low shelf (bass)
+  lowShelf.type = "lowshelf";
+  lowShelf.frequency.value = 200;
+  lowShelf.gain.value = effect.lowGain;
+  
+  // Mid peaking
+  mid.type = "peaking";
+  mid.frequency.value = 1000;
+  mid.Q.value = 1;
+  mid.gain.value = effect.midGain;
+  
+  // High shelf (treble)
+  highShelf.type = "highshelf";
+  highShelf.frequency.value = 3000;
+  highShelf.gain.value = effect.highGain;
+  
+  input.connect(lowShelf);
+  lowShelf.connect(mid);
+  mid.connect(highShelf);
+  
+  return highShelf;
+}
+
+function createCompressorEffect(ctx: AudioContext | OfflineAudioContext, input: AudioNode, effect: any): AudioNode {
+  if (!("createDynamicsCompressor" in ctx)) {
+    return input; // Fallback if not supported
+  }
+  
+  const compressor = (ctx as any).createDynamicsCompressor();
+  compressor.threshold.value = effect.threshold;
+  compressor.ratio.value = effect.ratio;
+  compressor.attack.value = effect.attack;
+  compressor.release.value = effect.release;
+  
+  input.connect(compressor);
+  return compressor;
+}
+
 /**
- * Create real-time audio playback with panning effects
+ * Create real-time audio playback with all effects
  */
 export function createRealtimeAudioSource(
   audioContext: AudioContext,
   audioBuffer: AudioBuffer,
-  effects: PanningEffect[],
+  effects: AudioEffect[],
   startTime: number,
   volume: number
 ): { source: AudioBufferSourceNode; gainNode: GainNode } {
@@ -70,27 +175,24 @@ export function createRealtimeAudioSource(
   const gainNode = audioContext.createGain();
   gainNode.gain.value = volume;
 
-  // Create panner node for real-time effects
-  const pannerNode = audioContext.createStereoPanner();
+  let prevNode: AudioNode = source;
 
-  // Schedule panning automation
-  const currentAudioTime = audioContext.currentTime;
-  effects.forEach(effect => {
-    const effectStartTime = currentAudioTime + (effect.startTime - startTime);
-    const effectEndTime = effectStartTime + effect.duration;
-    const panValue = (effect.intensity / 100) * 2 - 1;
-
-    if (effectStartTime > currentAudioTime) {
-      pannerNode.pan.setValueAtTime(0, effectStartTime);
-      pannerNode.pan.linearRampToValueAtTime(panValue, effectStartTime + effect.duration * 0.25);
-      pannerNode.pan.setValueAtTime(panValue, effectStartTime + effect.duration * 0.75);
-      pannerNode.pan.linearRampToValueAtTime(0, effectEndTime);
+  // Apply effects in order
+  for (const effect of effects) {
+    if (effect.type === "panning") {
+      prevNode = createPanningEffect(audioContext, prevNode, effect);
+    } else if (effect.type === "reverb") {
+      prevNode = createReverbEffect(audioContext, prevNode, effect);
+    } else if (effect.type === "delay") {
+      prevNode = createDelayEffect(audioContext, prevNode, effect);
+    } else if (effect.type === "eq") {
+      prevNode = createEQEffect(audioContext, prevNode, effect);
+    } else if (effect.type === "compressor") {
+      prevNode = createCompressorEffect(audioContext, prevNode, effect);
     }
-  });
+  }
 
-  // Connect nodes
-  source.connect(pannerNode);
-  pannerNode.connect(gainNode);
+  prevNode.connect(gainNode);
   gainNode.connect(audioContext.destination);
 
   return { source, gainNode };
@@ -104,7 +206,6 @@ export function exportToWAV(
   sampleRate: number = 44100,
   bitDepth: number = 16
 ): Blob {
-  // Resample if necessary
   let buffer = audioBuffer;
   if (audioBuffer.sampleRate !== sampleRate) {
     buffer = resampleBuffer(audioBuffer, sampleRate);
@@ -121,13 +222,12 @@ export function exportToWAV(
   const arrayBuffer = new ArrayBuffer(bufferSize);
   const view = new DataView(arrayBuffer);
 
-  // Write WAV header
   writeString(view, 0, 'RIFF');
   view.setUint32(4, bufferSize - 8, true);
   writeString(view, 8, 'WAVE');
   writeString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true); // PCM format chunk size
-  view.setUint16(20, 1, true); // PCM format
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
   view.setUint16(22, numberOfChannels, true);
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, byteRate, true);
@@ -136,7 +236,6 @@ export function exportToWAV(
   writeString(view, 36, 'data');
   view.setUint32(40, dataSize, true);
 
-  // Write audio data
   let offset = 44;
   const channels: Float32Array[] = [];
   for (let i = 0; i < numberOfChannels; i++) {
@@ -167,7 +266,7 @@ export function exportToWAV(
 }
 
 /**
- * Export audio buffer to MP3 format using lamejs
+ * Export audio buffer to MP3 format
  */
 export function exportToMP3(audioBuffer: AudioBuffer, bitrate: number = 192): Blob {
   const mp3encoder = new lamejs.Mp3Encoder(
@@ -212,9 +311,6 @@ export function exportToMP3(audioBuffer: AudioBuffer, bitrate: number = 192): Bl
   return new Blob(mp3Data, { type: 'audio/mp3' });
 }
 
-/**
- * Resample audio buffer to a different sample rate
- */
 function resampleBuffer(audioBuffer: AudioBuffer, targetSampleRate: number): AudioBuffer {
   const sourceSampleRate = audioBuffer.sampleRate;
   const ratio = sourceSampleRate / targetSampleRate;
@@ -231,23 +327,15 @@ function resampleBuffer(audioBuffer: AudioBuffer, targetSampleRate: number): Aud
   source.connect(offlineContext.destination);
   source.start(0);
 
-  // This will need to be handled asynchronously in practice
-  // For now, return original buffer (caller should handle async)
   return audioBuffer;
 }
 
-/**
- * Helper function to write string to DataView
- */
 function writeString(view: DataView, offset: number, string: string) {
   for (let i = 0; i < string.length; i++) {
     view.setUint8(offset + i, string.charCodeAt(i));
   }
 }
 
-/**
- * Download a blob as a file
- */
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
