@@ -1,9 +1,10 @@
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { X, Volume2, Music, Eye, EyeOff, Radio } from "lucide-react";
+import { X, Volume2, Music } from "lucide-react";
 import { AudioTrack } from "@shared/schema";
 
 interface TrackListProps {
@@ -40,19 +41,32 @@ export default function TrackList({
 
       <div className="space-y-2 max-h-96 overflow-y-auto">
         {tracks.length === 0 ? (
-          <p className="text-xs text-muted-foreground py-4 text-center">No tracks added yet</p>
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-xs text-muted-foreground py-4 text-center"
+          >
+            No tracks added yet
+          </motion.p>
         ) : (
-          tracks.map((track, index) => (
-            <Card
-              key={track.id}
-              className={`p-3 cursor-pointer transition-colors ${
-                selectedTrackId === track.id
-                  ? "ring-2 ring-primary bg-primary/5"
-                  : "hover-elevate"
-              }`}
-              onClick={() => onSelectTrack(track.id)}
-              data-testid={`card-track-${track.id}`}
-            >
+          <motion.div className="space-y-2">
+            {tracks.map((track, index) => (
+              <motion.div
+                key={track.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ delay: index * 0.05 }}
+              >
+                <Card
+                  className={`p-3 cursor-pointer transition-smooth ${
+                    selectedTrackId === track.id
+                      ? "ring-2 ring-primary bg-primary/5"
+                      : "hover-elevate"
+                  }`}
+                  onClick={() => onSelectTrack(track.id)}
+                  data-testid={`card-track-${track.id}`}
+                >
               <div className="space-y-3">
                 {/* Track Header */}
                 <div className="flex items-center justify-between gap-2">
