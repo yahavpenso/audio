@@ -32,10 +32,18 @@ app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
   const method = req.method;
+  const userAgent = req.headers['user-agent'] || 'unknown';
+  const contentType = req.headers['content-type'] || 'none';
+  const contentLength = req.headers['content-length'] || '0';
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
-  // Log incoming requests
-  log(`[${getTimestamp()}] ← ${method} ${path} from ${req.ip}`);
+  // Log incoming requests with detailed info
+  const queryStr = Object.keys(req.query).length > 0 ? ` | Query: ${JSON.stringify(req.query)}` : '';
+  log(`[${getTimestamp()}] ← ${method} ${path} from ${req.ip} | UA: ${userAgent.substring(0, 40)}${queryStr}`);
+  
+  if (method !== 'GET' && method !== 'HEAD') {
+    log(`[${getTimestamp()}]   Request | Type: ${contentType} | Size: ${contentLength} bytes`);
+  }
 
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
@@ -50,17 +58,20 @@ app.use((req, res, next) => {
                            statusCode >= 300 && statusCode < 400 ? '→' :
                            statusCode >= 400 && statusCode < 500 ? '⚠' : '✗';
     
+    const responseTime = duration > 100 ? `⏱ ${duration}ms` : `⚡ ${duration}ms`;
+    const responseSize = res.getHeader('content-length') || 'unknown';
+    
     if (path.startsWith("/api")) {
-      let logLine = `[${getTimestamp()}] ${statusIndicator} ${method} ${path} ${statusCode} in ${duration}ms`;
+      let logLine = `[${getTimestamp()}] ${statusIndicator} Response: ${method} ${path} ${statusCode} | ${responseTime} | Size: ${responseSize}`;
       if (capturedJsonResponse) {
         const responseStr = JSON.stringify(capturedJsonResponse);
-        logLine += ` | Response: ${responseStr.substring(0, 100)}${responseStr.length > 100 ? '…' : ''}`;
+        logLine += ` | Data: ${responseStr.substring(0, 80)}${responseStr.length > 80 ? '…' : ''}`;
       }
 
       log(logLine);
-    } else if (path === "/" || path.includes(".html")) {
+    } else if (path === "/" || path.includes(".html") || path.includes(".js") || path.includes(".css")) {
       const sizeIndicator = duration > 100 ? '⏱' : '⚡';
-      log(`[${getTimestamp()}] ${sizeIndicator} ${method} ${path} ${statusCode} in ${duration}ms`);
+      log(`[${getTimestamp()}] ${sizeIndicator} Asset: ${method} ${path} ${statusCode} | ${duration}ms | ${responseSize}b`);
     }
   });
 

@@ -28,7 +28,14 @@ function setupConsoleLogging() {
         body: JSON.stringify({
           level,
           messages,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          userAgent: navigator.userAgent,
+          url: window.location.href,
+          memory: (performance as any).memory ? {
+            jsHeapSizeLimit: ((performance as any).memory.jsHeapSizeLimit / 1048576).toFixed(2) + 'MB',
+            totalJSHeapSize: ((performance as any).memory.totalJSHeapSize / 1048576).toFixed(2) + 'MB',
+            usedJSHeapSize: ((performance as any).memory.usedJSHeapSize / 1048576).toFixed(2) + 'MB'
+          } : null
         })
       }).catch(() => {}); // Silently ignore network errors
     } catch {}
@@ -53,9 +60,40 @@ function setupConsoleLogging() {
     originalInfo.apply(console, args);
     sendLogToServer("info", args);
   };
+
+  // Log page visibility events
+  document.addEventListener('visibilitychange', () => {
+    const state = document.hidden ? 'hidden' : 'visible';
+    console.log(`📱 Page visibility changed: ${state}`);
+  });
+
+  // Log performance metrics
+  window.addEventListener('load', () => {
+    const perfData = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming;
+    if (perfData) {
+      console.log(`⏱ Page Load Metrics:`);
+      console.log(`  - DNS: ${perfData.domainLookupEnd - perfData.domainLookupStart}ms`);
+      console.log(`  - TCP: ${perfData.connectEnd - perfData.connectStart}ms`);
+      console.log(`  - Request: ${perfData.responseStart - perfData.requestStart}ms`);
+      console.log(`  - Response: ${perfData.responseEnd - perfData.responseStart}ms`);
+      console.log(`  - DOM Parse: ${perfData.domInteractive - perfData.domLoading}ms`);
+      console.log(`  - Total: ${perfData.loadEventEnd - perfData.fetchStart}ms`);
+    }
+  });
+
+  // Log unhandled errors
+  window.addEventListener('error', (event) => {
+    console.error(`❌ Unhandled error: ${event.error?.message || event.message}`);
+  });
+
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error(`❌ Unhandled promise rejection: ${event.reason}`);
+  });
 }
 
 // Setup console logging before rendering
+console.log(`[${new Date().toISOString()}] 🔧 Initializing console logging system...`);
 setupConsoleLogging();
+console.log(`[${new Date().toISOString()}] ✓ Console logging system initialized`);
 
 createRoot(document.getElementById("root")!).render(<App />);
