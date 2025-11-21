@@ -30,6 +30,7 @@ export default function PanningEffectPanel({
   const handleAddEffect = () => {
     const effect: PanningEffect = {
       id: crypto.randomUUID(),
+      type: "panning",
       startTime: currentTime,
       duration: effectDuration[0],
       intensity: intensity[0],

@@ -1,8 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Upload, Download } from "lucide-react";
+import { Upload, Download, Undo2, Redo2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { AudioTrack, AudioEffect, AudioSelection, ExportSettings } from "@shared/schema";
+import { useHistory } from "@/hooks/useHistory";
 import WaveformVisualization from "@/components/WaveformVisualization";
 import PlaybackControls from "@/components/PlaybackControls";
 import TimelineEditor from "@/components/TimelineEditor";
@@ -10,22 +11,34 @@ import EffectsPanel from "@/components/EffectsPanel";
 import TrackList from "@/components/TrackList";
 import ExportModal from "@/components/ExportModal";
 import EmptyState from "@/components/EmptyState";
-import { encodeAudioBuffer, decodeAudioTrack, mixAudioTracks } from "@/lib/audioMixing";
-import { exportToWAV, exportToMP3, downloadBlob, mixAudioTracks as mixTracks } from "@/lib/audioProcessing";
+import { encodeAudioBuffer, decodeAudioTrack } from "@/lib/audioMixing";
+import { exportToWAV, exportToMP3, downloadBlob, mixAudioTracks } from "@/lib/audioProcessing";
+
+interface EditorState {
+  tracks: AudioTrack[];
+  effects: AudioEffect[];
+  selection: AudioSelection | null;
+  zoom: number;
+  selectedTrackId: string | null;
+}
 
 export default function Editor() {
-  const [tracks, setTracks] = useState<AudioTrack[]>([]);
+  const initialState: EditorState = {
+    tracks: [],
+    effects: [],
+    selection: null,
+    zoom: 1,
+    selectedTrackId: null,
+  };
+
+  const { state, setState, undo, redo, canUndo, canRedo } = useHistory(initialState);
   const [trackBuffers, setTrackBuffers] = useState<Map<string, AudioBuffer>>(new Map());
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
-  const [effects, setEffects] = useState<AudioEffect[]>([]);
-  const [selection, setSelection] = useState<AudioSelection | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
-  const [zoom, setZoom] = useState(1);
-  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
   
   const audioContextRef = useRef<AudioContext | null>(null);
-  const sourceNodesRef = useRef<Map<string, AudioBufferSourceNode>>(new Map());
+  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const { toast } = useToast();
@@ -39,7 +52,7 @@ export default function Editor() {
   }, []);
 
   // Get total project duration
-  const projectDuration = Math.max(...tracks.map(t => t.duration), 0) || 0;
+  const projectDuration = Math.max(...state.tracks.map(t => t.duration), 0) || 0;
 
   const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -63,9 +76,13 @@ export default function Editor() {
         numberOfChannels: audioBuffer.numberOfChannels,
       };
 
-      setTracks(prev => [...prev, newTrack]);
+      setState(prevState => ({
+        ...prevState,
+        tracks: [...prevState.tracks, newTrack],
+        selectedTrackId: newTrack.id,
+      }));
+      
       setTrackBuffers(prev => new Map(prev).set(newTrack.id, audioBuffer));
-      setSelectedTrackId(newTrack.id);
       
       toast({
         title: "Track added",
@@ -78,42 +95,73 @@ export default function Editor() {
         variant: "destructive",
       });
     }
-  }, [toast]);
+  }, [setState, toast]);
 
   const handleAddTrack = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
 
   const handleUpdateTrack = useCallback((id: string, updates: Partial<AudioTrack>) => {
-    setTracks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
-  }, []);
+    setState(prevState => ({
+      ...prevState,
+      tracks: prevState.tracks.map(t => t.id === id ? { ...t, ...updates } : t),
+    }));
+  }, [setState]);
 
   const handleRemoveTrack = useCallback((id: string) => {
-    setTracks(prev => prev.filter(t => t.id !== id));
+    setState(prevState => ({
+      ...prevState,
+      tracks: prevState.tracks.filter(t => t.id !== id),
+      selectedTrackId: prevState.selectedTrackId === id ? prevState.tracks[0]?.id || null : prevState.selectedTrackId,
+    }));
     setTrackBuffers(prev => {
       const newMap = new Map(prev);
       newMap.delete(id);
       return newMap;
     });
-    if (selectedTrackId === id) {
-      setSelectedTrackId(tracks[0]?.id || null);
-    }
-  }, [tracks, selectedTrackId]);
+  }, [setState]);
 
   const handleAddEffect = useCallback((effect: AudioEffect) => {
-    setEffects(prev => [...prev, effect]);
+    setState(prevState => ({
+      ...prevState,
+      effects: [...prevState.effects, effect],
+    }));
     toast({
       title: `${effect.type} effect added`,
       description: `Applied at ${effect.startTime.toFixed(2)}s`,
     });
-  }, [toast]);
+  }, [setState, toast]);
 
   const handleRemoveEffect = useCallback((id: string) => {
-    setEffects(prev => prev.filter(e => e.id !== id));
-  }, []);
+    setState(prevState => ({
+      ...prevState,
+      effects: prevState.effects.filter(e => e.id !== id),
+    }));
+  }, [setState]);
+
+  const handleSelectionChange = useCallback((selection: AudioSelection | null) => {
+    setState(prevState => ({
+      ...prevState,
+      selection,
+    }));
+  }, [setState]);
+
+  const handleZoomChange = useCallback((zoom: number) => {
+    setState(prevState => ({
+      ...prevState,
+      zoom,
+    }));
+  }, [setState]);
+
+  const handleSelectTrack = useCallback((id: string) => {
+    setState(prevState => ({
+      ...prevState,
+      selectedTrackId: id,
+    }));
+  }, [setState]);
 
   const handleExport = useCallback(async (settings: ExportSettings) => {
-    if (tracks.length === 0 || !audioContextRef.current) return;
+    if (state.tracks.length === 0 || !audioContextRef.current) return;
     
     toast({
       title: "Exporting audio...",
@@ -121,9 +169,8 @@ export default function Editor() {
     });
     
     try {
-      // Decode all tracks
       const trackData = await Promise.all(
-        tracks.map(async (track) => ({
+        state.tracks.map(async (track) => ({
           buffer: trackBuffers.get(track.id) || await decodeAudioTrack(audioContextRef.current!, track.audioData),
           volume: track.volume,
           pan: track.pan,
@@ -132,21 +179,18 @@ export default function Editor() {
         }))
       );
 
-      // Create offline context and mix
       const maxDuration = Math.max(...trackData.map(t => t.buffer.duration));
       const sampleRate = trackData[0]?.buffer.sampleRate || 44100;
       const offlineContext = new OfflineAudioContext(2, Math.ceil(maxDuration * sampleRate), sampleRate);
       
-      const mixedBuffer = await mixTracks(offlineContext, trackData);
+      const mixedBuffer = await mixAudioTracks(offlineContext, trackData);
       
-      // Apply effects
       let finalBuffer = mixedBuffer;
-      if (effects.length > 0) {
+      if (state.effects.length > 0) {
         const { applyAllEffects } = await import("@/lib/audioProcessing");
-        finalBuffer = await applyAllEffects(mixedBuffer, effects);
+        finalBuffer = await applyAllEffects(mixedBuffer, state.effects);
       }
       
-      // Export
       let blob: Blob;
       let filename: string;
       
@@ -173,7 +217,7 @@ export default function Editor() {
     }
     
     setShowExportModal(false);
-  }, [tracks, trackBuffers, effects, toast]);
+  }, [state.tracks, state.effects, trackBuffers, toast]);
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -184,10 +228,34 @@ export default function Editor() {
             <span className="text-primary-foreground font-semibold text-lg">A</span>
           </div>
           <h1 className="text-xl font-semibold tracking-tight">Audio Editor</h1>
-          <span className="text-xs text-muted-foreground ml-4">{tracks.length} tracks</span>
+          <span className="text-xs text-muted-foreground ml-4">{state.tracks.length} tracks</span>
         </div>
         
         <div className="flex items-center gap-2">
+          <Button
+            onClick={undo}
+            disabled={!canUndo}
+            variant="outline"
+            size="icon"
+            data-testid="button-undo"
+            title="Undo (Ctrl+Z)"
+          >
+            <Undo2 className="w-4 h-4" />
+          </Button>
+          
+          <Button
+            onClick={redo}
+            disabled={!canRedo}
+            variant="outline"
+            size="icon"
+            data-testid="button-redo"
+            title="Redo (Ctrl+Y)"
+          >
+            <Redo2 className="w-4 h-4" />
+          </Button>
+
+          <div className="w-px h-6 bg-border" />
+
           <input
             ref={fileInputRef}
             type="file"
@@ -205,7 +273,7 @@ export default function Editor() {
             Add Track
           </Button>
 
-          {tracks.length > 0 && (
+          {state.tracks.length > 0 && (
             <Button
               onClick={() => setShowExportModal(true)}
               data-testid="button-export"
@@ -217,7 +285,7 @@ export default function Editor() {
         </div>
       </header>
 
-      {tracks.length === 0 ? (
+      {state.tracks.length === 0 ? (
         <EmptyState onUpload={handleAddTrack} />
       ) : (
         <>
@@ -226,27 +294,27 @@ export default function Editor() {
             {/* Waveform and Playback */}
             <div className="flex-1 border-b border-border overflow-hidden flex flex-col p-6">
               <WaveformVisualization
-                audioBuffer={trackBuffers.get(selectedTrackId || "") || null}
+                audioBuffer={trackBuffers.get(state.selectedTrackId || "") || null}
                 currentTime={currentTime}
-                panningEffects={effects.filter((e): e is any => e.type === "panning")}
-                selection={selection}
-                onSelectionChange={setSelection}
-                zoom={zoom}
+                panningEffects={state.effects.filter((e): e is any => e.type === "panning")}
+                selection={state.selection}
+                onSelectionChange={handleSelectionChange}
+                zoom={state.zoom}
                 isPlaying={isPlaying}
               />
               
               <div className="mt-6">
                 <PlaybackControls
-                  audioBuffer={trackBuffers.get(selectedTrackId || "") || null}
+                  audioBuffer={trackBuffers.get(state.selectedTrackId || "") || null}
                   audioContext={audioContextRef.current}
                   isPlaying={isPlaying}
                   currentTime={currentTime}
                   duration={projectDuration}
-                  effects={effects}
+                  effects={state.effects}
                   onPlayPause={setIsPlaying}
                   onTimeUpdate={setCurrentTime}
                   onSeek={setCurrentTime}
-                  sourceNodeRef={{ current: sourceNodesRef.current.get(selectedTrackId || "") || null } as any}
+                  sourceNodeRef={sourceNodeRef}
                 />
               </div>
             </div>
@@ -256,9 +324,9 @@ export default function Editor() {
               <TimelineEditor
                 duration={projectDuration}
                 currentTime={currentTime}
-                effects={effects}
-                zoom={zoom}
-                onZoomChange={setZoom}
+                effects={state.effects}
+                zoom={state.zoom}
+                onZoomChange={handleZoomChange}
                 onSeek={setCurrentTime}
               />
             </div>
@@ -268,19 +336,19 @@ export default function Editor() {
           <div className="w-80 border-l border-border flex flex-col overflow-hidden bg-card">
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
               <TrackList
-                tracks={tracks}
+                tracks={state.tracks}
                 onUpdateTrack={handleUpdateTrack}
                 onRemoveTrack={handleRemoveTrack}
                 onAddTrack={handleAddTrack}
-                selectedTrackId={selectedTrackId}
-                onSelectTrack={setSelectedTrackId}
+                selectedTrackId={state.selectedTrackId}
+                onSelectTrack={handleSelectTrack}
               />
               
               <div className="border-t pt-4">
                 <EffectsPanel
                   duration={projectDuration}
                   currentTime={currentTime}
-                  effects={effects}
+                  effects={state.effects}
                   onAddEffect={handleAddEffect}
                   onRemoveEffect={handleRemoveEffect}
                 />
@@ -298,6 +366,29 @@ export default function Editor() {
           )}
         </>
       )}
+
+      {/* Keyboard Shortcuts */}
+      <KeyboardShortcuts onUndo={undo} onRedo={redo} canUndo={canUndo} canRedo={canRedo} />
     </div>
   );
+}
+
+function KeyboardShortcuts({ onUndo, onRedo, canUndo, canRedo }: { onUndo: () => void; onRedo: () => void; canUndo: boolean; canRedo: boolean }) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && canUndo) {
+        e.preventDefault();
+        onUndo();
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.shiftKey && e.key === "Z")) && canRedo) {
+        e.preventDefault();
+        onRedo();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onUndo, onRedo, canUndo, canRedo]);
+
+  return null;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState, RefObject } from "react";
+import { useEffect, useCallback, useState, MutableRefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Play, Pause, Square, Volume2 } from "lucide-react";
@@ -14,7 +14,7 @@ interface PlaybackControlsProps {
   onPlayPause: (playing: boolean) => void;
   onTimeUpdate: (time: number) => void;
   onSeek: (time: number) => void;
-  sourceNodeRef: RefObject<AudioBufferSourceNode | null>;
+  sourceNodeRef: MutableRefObject<AudioBufferSourceNode | null>;
 }
 
 export default function PlaybackControls({
@@ -38,7 +38,6 @@ export default function PlaybackControls({
       if (sourceNodeRef.current) {
         sourceNodeRef.current.stop();
         sourceNodeRef.current.disconnect();
-        sourceNodeRef.current = null;
       }
       onPlayPause(false);
     } else {
@@ -67,7 +66,6 @@ export default function PlaybackControls({
     if (sourceNodeRef.current) {
       sourceNodeRef.current.stop();
       sourceNodeRef.current.disconnect();
-      sourceNodeRef.current = null;
     }
     onPlayPause(false);
     onSeek(0);
