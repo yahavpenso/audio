@@ -1,4 +1,28 @@
 import { z } from "zod";
+import { pgTable, text, integer, timestamp, jsonb, boolean, doublePrecision } from "drizzle-orm/pg-core";
+import { createInsertSchema, createSelectSchema } from "drizzle-zod";
+
+// Database tables
+export const projectsTable = pgTable("projects", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().default("default"),
+  name: text("name").notNull(),
+  description: text("description"),
+  audioFileName: text("audio_file_name"),
+  duration: doublePrecision("duration").default(0),
+  sampleRate: integer("sample_rate"),
+  numberOfChannels: integer("number_of_channels"),
+  audioData: text("audio_data"), // Base64 encoded audio buffer
+  effects: jsonb("effects").$type<PanningEffect[]>().default([]),
+  selection: jsonb("selection").$type<AudioSelection | null>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Type inference from table
+export type ProjectRow = typeof projectsTable.$inferSelect;
+export const projectInsertSchema = createInsertSchema(projectsTable);
+export type ProjectInsert = z.infer<typeof projectInsertSchema>;
 
 // Audio file metadata
 export interface AudioFile {
@@ -45,6 +69,11 @@ export const panningEffectSchema = z.object({
   startTime: z.number().min(0),
   duration: z.number().min(0.1).max(10),
   intensity: z.number().min(0).max(100),
+});
+
+export const audioSelectionSchema = z.object({
+  startTime: z.number().min(0),
+  endTime: z.number().min(0),
 });
 
 export const wavExportSettingsSchema = z.object({

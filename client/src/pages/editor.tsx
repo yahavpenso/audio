@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Upload, Download, Scissors, Undo2 } from "lucide-react";
+import { Upload, Download, Save, Folder } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { AudioFile, PanningEffect, AudioSelection, ExportSettings } from "@shared/schema";
 import WaveformVisualization from "@/components/WaveformVisualization";
@@ -10,6 +10,10 @@ import PanningEffectPanel from "@/components/PanningEffectPanel";
 import CuttingTools from "@/components/CuttingTools";
 import ExportModal from "@/components/ExportModal";
 import EmptyState from "@/components/EmptyState";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 export default function Editor() {
   const [audioFile, setAudioFile] = useState<AudioFile | null>(null);
@@ -19,6 +23,9 @@ export default function Editor() {
   const [panningEffects, setPanningEffects] = useState<PanningEffect[]>([]);
   const [selection, setSelection] = useState<AudioSelection | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [projectName, setProjectName] = useState("");
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -34,6 +41,87 @@ export default function Editor() {
       audioContextRef.current?.close();
     };
   }, []);
+
+  // Fetch projects list
+  const { data: projects = [] } = useQuery({
+    queryKey: ["/api/projects"],
+    queryFn: async () => {
+      try {
+        const result = await apiRequest("/api/projects?userId=default");
+        return Array.isArray(result) ? result : [];
+      } catch {
+        return [];
+      }
+    },
+  });
+
+  // Save project mutation
+  const saveProjectMutation = useMutation({
+    mutationFn: async (data: any) => {
+      if (projectId) {
+        return await apiRequest(`/api/projects/${projectId}`, {
+          method: "PATCH",
+          body: JSON.stringify(data),
+        });
+      } else {
+        return await apiRequest("/api/projects", {
+          method: "POST",
+          body: JSON.stringify(data),
+        });
+      }
+    },
+    onSuccess: (result: any) => {
+      setProjectId(result.id);
+      queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+      toast({
+        title: "Project saved",
+        description: projectName,
+      });
+      setShowSaveDialog(false);
+    },
+  });
+
+  // Load project mutation
+  const loadProjectMutation = useMutation({
+    mutationFn: async (projectId: string) => {
+      return await apiRequest(`/api/projects/${projectId}`);
+    },
+    onSuccess: async (result: any) => {
+      if (result.audioData && audioContextRef.current) {
+        try {
+          const binaryString = atob(result.audioData.split(",")[1]);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          const audioBuffer = await audioContextRef.current.decodeAudioData(bytes.buffer);
+          
+          setAudioFile({
+            id: result.id,
+            name: result.audioFileName || "Loaded Project",
+            duration: result.duration || 0,
+            sampleRate: result.sampleRate || 44100,
+            numberOfChannels: result.numberOfChannels || 2,
+          });
+          setAudioBuffer(audioBuffer);
+          setPanningEffects(result.effects || []);
+          setSelection(result.selection || null);
+          setProjectId(result.id);
+          setProjectName(result.name);
+          
+          toast({
+            title: "Project loaded",
+            description: result.name,
+          });
+        } catch (error) {
+          toast({
+            title: "Error loading project",
+            variant: "destructive",
+          });
+        }
+      }
+    },
+  });
 
   const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -56,6 +144,8 @@ export default function Editor() {
       setCurrentTime(0);
       setPanningEffects([]);
       setSelection(null);
+      setProjectId(null);
+      setProjectName("");
       
       toast({
         title: "Audio loaded successfully",
@@ -86,6 +176,55 @@ export default function Editor() {
     });
   }, [toast]);
 
+  const handleSaveProject = useCallback(() => {
+    if (!audioBuffer || !projectName) {
+      toast({
+        title: "Error",
+        description: "Please enter a project name",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64 = reader.result as string;
+      
+      saveProjectMutation.mutate({
+        id: projectId || crypto.randomUUID(),
+        name: projectName,
+        userId: "default",
+        audioFileName: audioFile?.name,
+        duration: audioBuffer.duration,
+        sampleRate: audioBuffer.sampleRate,
+        numberOfChannels: audioBuffer.numberOfChannels,
+        audioData: base64,
+        effects: panningEffects,
+        selection: selection,
+      });
+    };
+
+    const offlineContext = new OfflineAudioContext(
+      audioBuffer.numberOfChannels,
+      audioBuffer.length,
+      audioBuffer.sampleRate
+    );
+    const offlineBuffer = offlineContext.createBuffer(
+      audioBuffer.numberOfChannels,
+      audioBuffer.length,
+      audioBuffer.sampleRate
+    );
+    
+    for (let channel = 0; channel < audioBuffer.numberOfChannels; channel++) {
+      const sourceData = audioBuffer.getChannelData(channel);
+      const destData = offlineBuffer.getChannelData(channel);
+      destData.set(sourceData);
+    }
+
+    const wavBlob = new Blob([audioBuffer], { type: "audio/wav" });
+    reader.readAsDataURL(wavBlob);
+  }, [audioBuffer, audioFile, projectName, panningEffects, selection, projectId, toast, saveProjectMutation]);
+
   const handleExport = useCallback(async (settings: ExportSettings) => {
     if (!audioBuffer) return;
     
@@ -95,13 +234,10 @@ export default function Editor() {
     });
     
     try {
-      // Import audio processing utilities
       const { applyPanningEffects, exportToWAV, exportToMP3, downloadBlob } = await import("@/lib/audioProcessing");
       
-      // Apply all panning effects to the audio
       const processedBuffer = await applyPanningEffects(audioBuffer, panningEffects);
       
-      // Export based on format
       let blob: Blob;
       let filename: string;
       
@@ -113,7 +249,6 @@ export default function Editor() {
         filename = `${audioFile?.name.replace(/\.[^/.]+$/, "") || "audio"}_export.mp3`;
       }
       
-      // Download the file
       downloadBlob(blob, filename);
       
       toast({
@@ -141,6 +276,7 @@ export default function Editor() {
             <span className="text-primary-foreground font-semibold text-lg">A</span>
           </div>
           <h1 className="text-xl font-semibold tracking-tight">Audio Editor</h1>
+          {projectId && <span className="text-sm text-muted-foreground ml-4">{projectName}</span>}
         </div>
         
         <div className="flex items-center gap-2">
@@ -160,103 +296,162 @@ export default function Editor() {
             <Upload className="w-4 h-4" />
             Import Audio
           </Button>
-          
+
           {audioFile && (
-            <Button
-              onClick={() => setShowExportModal(true)}
-              data-testid="button-export"
-            >
-              <Download className="w-4 h-4" />
-              Export
-            </Button>
+            <>
+              <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" data-testid="button-save-project">
+                    <Save className="w-4 h-4" />
+                    Save Project
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Save Project</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4">
+                    <Input
+                      placeholder="Project name"
+                      value={projectName}
+                      onChange={(e) => setProjectName(e.target.value)}
+                      data-testid="input-project-name"
+                    />
+                    <Button onClick={handleSaveProject} data-testid="button-confirm-save">
+                      Save
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="outline" data-testid="button-load-project">
+                    <Folder className="w-4 h-4" />
+                    Load Project
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Load Project</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {projects.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No saved projects</p>
+                    ) : (
+                      projects.map((project: any) => (
+                        <Button
+                          key={project.id}
+                          onClick={() => loadProjectMutation.mutate(project.id)}
+                          variant="ghost"
+                          className="w-full justify-start"
+                          data-testid={`button-load-project-${project.id}`}
+                        >
+                          <div className="text-left">
+                            <div className="font-medium">{project.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {project.duration?.toFixed(2)}s • {new Date(project.updatedAt).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </Button>
+                      ))
+                    )}
+                  </div>
+                </DialogContent>
+              </Dialog>
+              
+              <Button
+                onClick={() => setShowExportModal(true)}
+                data-testid="button-export"
+              >
+                <Download className="w-4 h-4" />
+                Export
+              </Button>
+            </>
           )}
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden">
-        {!audioFile ? (
-          <EmptyState onUpload={() => fileInputRef.current?.click()} />
-        ) : (
-          <>
-            {/* Central Workspace */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Waveform Display */}
-              <div className="flex-1 flex flex-col p-6 overflow-auto">
-                <WaveformVisualization
-                  audioBuffer={audioBuffer}
-                  currentTime={currentTime}
-                  panningEffects={panningEffects}
-                  selection={selection}
-                  onSelectionChange={setSelection}
-                  zoom={zoom}
-                  isPlaying={isPlaying}
-                />
-                
-                {/* Playback Controls */}
-                <div className="mt-6">
-                  <PlaybackControls
-                    audioBuffer={audioBuffer}
-                    audioContext={audioContextRef.current}
-                    isPlaying={isPlaying}
-                    currentTime={currentTime}
-                    duration={audioFile.duration}
-                    panningEffects={panningEffects}
-                    onPlayPause={setIsPlaying}
-                    onTimeUpdate={setCurrentTime}
-                    onSeek={setCurrentTime}
-                    sourceNodeRef={sourceNodeRef}
-                  />
-                </div>
-              </div>
+      {!audioFile ? (
+        <EmptyState onUpload={() => fileInputRef.current?.click()} />
+      ) : (
+        <>
+          {/* Main Content Area */}
+          <div className="flex-1 overflow-hidden flex flex-col">
+            {/* Waveform Visualization */}
+            <div className="flex-1 border-b border-border overflow-x-auto">
+              <WaveformVisualization
+                audioBuffer={audioBuffer}
+                currentTime={currentTime}
+                panningEffects={panningEffects}
+                selection={selection}
+                onSelectionChange={setSelection}
+                zoom={zoom}
+                isPlaying={isPlaying}
+                data-testid="waveform-visualization"
+              />
+            </div>
 
-              {/* Timeline Editor */}
-              <div className="h-32 border-t border-border">
+            {/* Playback Controls */}
+            <PlaybackControls
+              audioBuffer={audioBuffer}
+              audioContext={audioContextRef.current}
+              isPlaying={isPlaying}
+              currentTime={currentTime}
+              duration={audioBuffer?.duration || 0}
+              panningEffects={panningEffects}
+              onPlayPause={setIsPlaying}
+              onTimeUpdate={setCurrentTime}
+              onSeek={setCurrentTime}
+              sourceNodeRef={sourceNodeRef}
+            />
+
+            {/* Timeline and Controls */}
+            <div className="flex gap-4 border-t border-border p-4 bg-muted/30">
+              <div className="flex-1">
                 <TimelineEditor
-                  duration={audioFile.duration}
+                  duration={audioBuffer?.duration || 0}
                   currentTime={currentTime}
-                  panningEffects={panningEffects}
                   zoom={zoom}
                   onZoomChange={setZoom}
+                  panningEffects={panningEffects}
                   onSeek={setCurrentTime}
                 />
               </div>
-            </div>
 
-            {/* Right Sidebar - Effect Controls */}
-            <div className="w-80 border-l border-border flex flex-col overflow-hidden bg-card">
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {/* Cutting Tools */}
-                <CuttingTools
-                  selection={selection}
-                  duration={audioFile.duration}
-                  onSelectionChange={setSelection}
-                  audioBuffer={audioBuffer}
-                  setAudioBuffer={setAudioBuffer}
-                  setAudioFile={setAudioFile}
-                />
-
-                {/* Panning Effect Panel */}
+              {/* Right Sidebar */}
+              <div className="w-80 border-l border-border pl-4 space-y-4 overflow-y-auto">
                 <PanningEffectPanel
-                  duration={audioFile.duration}
+                  duration={audioBuffer?.duration || 0}
                   currentTime={currentTime}
                   panningEffects={panningEffects}
                   onAddEffect={handleAddPanningEffect}
                   onRemoveEffect={handleRemovePanningEffect}
+                  data-testid="panning-panel"
+                />
+
+                <CuttingTools
+                  duration={audioBuffer?.duration || 0}
+                  selection={selection}
+                  onSelectionChange={setSelection}
+                  audioBuffer={audioBuffer}
+                  setAudioBuffer={setAudioBuffer}
+                  setAudioFile={setAudioFile}
+                  data-testid="cutting-tools"
                 />
               </div>
             </div>
-          </>
-        )}
-      </div>
+          </div>
 
-      {/* Export Modal */}
-      {showExportModal && audioFile && (
-        <ExportModal
-          audioFile={audioFile}
-          onClose={() => setShowExportModal(false)}
-          onExport={handleExport}
-        />
+          {/* Export Modal */}
+          {audioFile && (
+            <ExportModal
+              audioFile={audioFile}
+              onClose={() => setShowExportModal(false)}
+              onExport={handleExport}
+            />
+          )}
+        </>
       )}
     </div>
   );
