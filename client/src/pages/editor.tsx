@@ -200,7 +200,7 @@ export default function Editor() {
     try {
       const trackData = await Promise.all(
         state.tracks.map(async (track) => ({
-          buffer: trackBuffers.get(track.id) || null,
+          buffer: trackBuffers.get(track.id),
           volume: track.volume,
           pan: track.pan,
           isMuted: track.isMuted,
@@ -208,11 +208,16 @@ export default function Editor() {
         }))
       );
 
-      const maxDuration = Math.max(...trackData.map(t => t.buffer.duration));
-      const sampleRate = trackData[0]?.buffer.sampleRate || 44100;
+      const validTracks = trackData.filter((t) => t.buffer !== undefined) as typeof trackData;
+      if (validTracks.length === 0) {
+        throw new Error("No valid audio tracks to export");
+      }
+
+      const maxDuration = Math.max(...validTracks.map(t => t.buffer!.duration));
+      const sampleRate = validTracks[0]?.buffer?.sampleRate || 44100;
       const offlineContext = new OfflineAudioContext(2, Math.ceil(maxDuration * sampleRate), sampleRate);
       
-      const mixedBuffer = await mixAudioTracks(offlineContext, trackData);
+      const mixedBuffer = await mixAudioTracks(offlineContext, validTracks);
       
       let finalBuffer = mixedBuffer;
       if (state.effects.length > 0) {

@@ -95,7 +95,34 @@ export interface CompressorEffect {
   release: number; // 0 to 1 seconds
 }
 
-export type AudioEffect = PanningEffect | ReverbEffect | DelayEffect | EQEffect | CompressorEffect;
+export interface PitchShiftEffect {
+  id: string;
+  type: "pitchshift";
+  startTime: number;
+  duration: number;
+  semitones: number; // -24 to +24 semitones
+}
+
+export interface DistortionEffect {
+  id: string;
+  type: "distortion";
+  startTime: number;
+  duration: number;
+  amount: number; // 0-100 (intensity of distortion)
+  tone: number; // 0-100 (brightness)
+}
+
+export interface ChorusEffect {
+  id: string;
+  type: "chorus";
+  startTime: number;
+  duration: number;
+  rate: number; // 0.5-5 Hz
+  depth: number; // 0-100 (mix intensity)
+  dryWet: number; // 0-100 (wet/dry mix)
+}
+
+export type AudioEffect = PanningEffect | ReverbEffect | DelayEffect | EQEffect | CompressorEffect | PitchShiftEffect | DistortionEffect | ChorusEffect;
 
 // Export format options
 export type ExportFormat = "wav" | "mp3";
@@ -192,12 +219,42 @@ export const compressorEffectSchema = z.object({
   release: z.number().min(0).max(1),
 });
 
+export const pitchShiftEffectSchema = z.object({
+  id: z.string(),
+  type: z.literal("pitchshift"),
+  startTime: z.number().min(0),
+  duration: z.number().min(0.1),
+  semitones: z.number().min(-24).max(24),
+});
+
+export const distortionEffectSchema = z.object({
+  id: z.string(),
+  type: z.literal("distortion"),
+  startTime: z.number().min(0),
+  duration: z.number().min(0.1),
+  amount: z.number().min(0).max(100),
+  tone: z.number().min(0).max(100),
+});
+
+export const chorusEffectSchema = z.object({
+  id: z.string(),
+  type: z.literal("chorus"),
+  startTime: z.number().min(0),
+  duration: z.number().min(0.1),
+  rate: z.number().min(0.5).max(5),
+  depth: z.number().min(0).max(100),
+  dryWet: z.number().min(0).max(100),
+});
+
 export const audioEffectSchema = z.union([
   panningEffectSchema,
   reverbEffectSchema,
   delayEffectSchema,
   eqEffectSchema,
   compressorEffectSchema,
+  pitchShiftEffectSchema,
+  distortionEffectSchema,
+  chorusEffectSchema,
 ]);
 
 export const audioSelectionSchema = z.object({

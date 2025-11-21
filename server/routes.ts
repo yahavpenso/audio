@@ -4,31 +4,26 @@ import { storage } from "./storage";
 import { fileUploadResponseSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // File upload endpoint
+  // File upload endpoint (for future use with multer)
   app.post("/api/upload-audio", async (req, res) => {
     try {
-      const file = req.file;
-      if (!file) {
-        return res.status(400).json({ error: "No file provided" });
-      }
-
-      const result = await storage.uploadAudioFile(file.buffer, file.originalname);
-      
-      res.json(fileUploadResponseSchema.parse(result));
+      // For now, audio is handled client-side
+      // Future: integrate multer for server-side uploads
+      return res.status(501).json({ error: "File upload via server coming soon" });
     } catch (error) {
       console.error("Upload error:", error);
       res.status(500).json({ error: "Upload failed" });
     }
   });
 
-  // File download endpoint
+  // File download endpoint (for future use)
   app.get("/api/audio/:fileId", async (req, res) => {
     try {
       const { fileId } = req.params;
       const buffer = await storage.downloadAudioFile(fileId);
       
       res.set("Content-Type", "audio/wav");
-      res.set("Content-Length", buffer.length);
+      res.set("Content-Length", String(buffer.length));
       res.send(buffer);
     } catch (error) {
       console.error("Download error:", error);
