@@ -61,17 +61,18 @@ export default function PlaybackControls({
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-center gap-2">
+    <div className="space-y-2 sm:space-y-4">
+      <div className="flex items-center justify-center gap-1 sm:gap-2">
         <Button
           variant="outline"
           size="icon"
           onClick={handleStop}
           disabled={!audioBuffer}
           data-testid="button-stop"
-          className="h-10 w-10"
+          className="h-8 w-8 sm:h-10 sm:w-10"
+          title="Stop (Space)"
         >
-          <Square className="w-5 h-5" />
+          <Square className="w-4 h-4 sm:w-5 sm:h-5" />
         </Button>
         
         <Button
@@ -79,10 +80,11 @@ export default function PlaybackControls({
           onClick={handlePlayPause}
           disabled={!audioBuffer}
           data-testid="button-play-pause"
-          className="h-12 w-12"
+          className="h-10 w-10 sm:h-12 sm:w-12"
+          title="Play/Pause (Space)"
         >
           {isPlaying ? (
-            <Pause className="w-6 h-6" />
+            <Pause className="w-5 h-5 sm:w-6 sm:h-6" />
           ) : (
             <Play className="w-6 h-6 ml-0.5" />
           )}

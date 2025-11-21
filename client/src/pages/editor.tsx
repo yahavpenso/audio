@@ -199,16 +199,25 @@ export default function Editor() {
     
     try {
       const trackData = await Promise.all(
-        state.tracks.map(async (track) => ({
-          buffer: trackBuffers.get(track.id),
-          volume: track.volume,
-          pan: track.pan,
-          isMuted: track.isMuted,
-          isSolo: track.isSolo,
-        }))
+        state.tracks.map(async (track) => {
+          const buffer = trackBuffers.get(track.id);
+          return buffer ? {
+            buffer,
+            volume: track.volume,
+            pan: track.pan,
+            isMuted: track.isMuted,
+            isSolo: track.isSolo,
+          } : null;
+        })
       );
 
-      const validTracks = trackData.filter((t) => t.buffer !== undefined) as typeof trackData;
+      const validTracks = trackData.filter((t) => t !== null) as Array<{
+        buffer: AudioBuffer;
+        volume: number;
+        pan: number;
+        isMuted: boolean;
+        isSolo: boolean;
+      }>;
       if (validTracks.length === 0) {
         throw new Error("No valid audio tracks to export");
       }
