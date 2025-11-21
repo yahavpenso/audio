@@ -7,10 +7,9 @@ import { AudioTrack } from "@shared/schema";
 interface InfoPanelProps {
   tracks: AudioTrack[];
   duration: number;
-  username?: string;
 }
 
-export default function InfoPanel({ tracks, duration, username }: InfoPanelProps) {
+export default function InfoPanel({ tracks, duration }: InfoPanelProps) {
   const totalSize = tracks.reduce((sum, t) => sum + (t.fileSize || 0), 0);
   const formatSize = (bytes: number) => {
     if (bytes === 0) return "0 B";
@@ -35,22 +34,10 @@ export default function InfoPanel({ tracks, duration, username }: InfoPanelProps
         <Separator className="my-2" />
 
         <div className="space-y-2 text-xs">
-          {username && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.1 }}
-              className="flex items-center justify-between"
-            >
-              <span className="text-muted-foreground">User</span>
-              <span className="font-medium text-foreground">{username}</span>
-            </motion.div>
-          )}
-
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.15 }}
+            transition={{ delay: 0.1 }}
             className="flex items-center justify-between"
           >
             <div className="flex items-center gap-1 text-muted-foreground">
@@ -63,7 +50,7 @@ export default function InfoPanel({ tracks, duration, username }: InfoPanelProps
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.2 }}
+            transition={{ delay: 0.15 }}
             className="flex items-center justify-between"
           >
             <div className="flex items-center gap-1 text-muted-foreground">
@@ -76,7 +63,7 @@ export default function InfoPanel({ tracks, duration, username }: InfoPanelProps
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.25 }}
+            transition={{ delay: 0.2 }}
             className="flex items-center justify-between"
           >
             <div className="flex items-center gap-1 text-muted-foreground">

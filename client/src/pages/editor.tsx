@@ -1,8 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Upload, Download, Undo2, Redo2, LogOut } from "lucide-react";
+import { Upload, Download, Undo2, Redo2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/useAuth";
 import { AudioTrack, AudioEffect, AudioSelection, ExportSettings } from "@shared/schema";
 import { useHistory } from "@/hooks/useHistory";
 import { useLivePlayback } from "@/hooks/useLivePlayback";
@@ -50,7 +49,6 @@ export default function Editor() {
   const livePlaybackRef = useRef<ReturnType<typeof useLivePlayback> | null>(null);
   
   const { toast } = useToast();
-  const { user, logout } = useAuth();
 
   // Initialize AudioContext
   useEffect(() => {
@@ -64,13 +62,6 @@ export default function Editor() {
       console.log("🛑 Audio Editor closed");
     };
   }, []);
-
-  // Log user login
-  useEffect(() => {
-    if (user) {
-      console.log(`👤 User logged in: ${user.username}`);
-    }
-  }, [user]);
 
   // Setup live playback
   const livePlayback = useLivePlayback(audioContextRef.current, state.tracks, trackBuffers, state.effects);
@@ -322,10 +313,7 @@ export default function Editor() {
           <div className="w-6 h-6 sm:w-8 sm:h-8 rounded-md bg-primary flex-shrink-0 flex items-center justify-center">
             <span className="text-primary-foreground font-semibold text-sm sm:text-lg">A</span>
           </div>
-          <div className="min-w-0">
-            <h1 className="text-base sm:text-lg lg:text-xl font-semibold tracking-tight truncate">Audio Editor</h1>
-            {user && <p className="text-xs text-muted-foreground">Welcome, {user.username}</p>}
-          </div>
+          <h1 className="text-base sm:text-lg lg:text-xl font-semibold tracking-tight truncate">Audio Editor</h1>
           <span className="hidden sm:inline text-xs text-muted-foreground ml-2 lg:ml-4">{state.tracks.length} tracks</span>
         </div>
         
@@ -387,18 +375,6 @@ export default function Editor() {
               <span className="hidden sm:inline ml-1">Export</span>
             </Button>
           )}
-
-          <Button
-            onClick={logout}
-            variant="outline"
-            size="sm"
-            className="h-8 sm:h-9 text-xs sm:text-sm"
-            data-testid="button-logout"
-            title="Logout"
-          >
-            <LogOut className="w-3 h-3 sm:w-4 sm:h-4" />
-            <span className="hidden sm:inline ml-1">Logout</span>
-          </Button>
         </div>
       </header>
 
@@ -454,7 +430,7 @@ export default function Editor() {
           {/* Right Sidebar - hidden on mobile */}
           <div className="hidden lg:flex w-64 xl:w-80 border-l border-border flex-col overflow-hidden bg-card">
             <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-4 sm:space-y-6">
-              <InfoPanel tracks={state.tracks} duration={state.tracks.length > 0 ? Math.max(...state.tracks.map(t => t.duration)) : 0} username={user?.username} />
+              <InfoPanel tracks={state.tracks} duration={state.tracks.length > 0 ? Math.max(...state.tracks.map(t => t.duration)) : 0} />
 
               <div>
                 <h3 className="text-xs sm:text-sm font-semibold mb-3">Tracks</h3>
