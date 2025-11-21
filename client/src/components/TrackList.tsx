@@ -4,7 +4,7 @@ import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { X, Volume2, Music } from "lucide-react";
+import { X, Volume2, Music, Radio } from "lucide-react";
 import { AudioTrack } from "@shared/schema";
 
 interface TrackListProps {
