@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Upload, Download, Undo2, Redo2 } from "lucide-react";
+import { Upload, Download, Undo2, Redo2, HelpCircle, Settings as SettingsIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { AudioTrack, AudioEffect, AudioSelection, ExportSettings } from "@shared/schema";
 import { useHistory } from "@/hooks/useHistory";
@@ -16,6 +16,10 @@ import LoadingOverlay from "@/components/LoadingOverlay";
 import InfoPanel from "@/components/InfoPanel";
 import ConsolePanel from "@/components/ConsolePanel";
 import StatsPanel from "@/components/StatsPanel";
+import FrequencyAnalyzer from "@/components/FrequencyAnalyzer";
+import KeyboardShortcutsModal from "@/components/KeyboardShortcutsModal";
+import SettingsPanel from "@/components/SettingsPanel";
+import HelpTooltip from "@/components/HelpTooltip";
 import { encodeAudioBuffer, decodeAudioTrack } from "@/lib/audioMixing";
 import { exportToWAV, exportToMP3, downloadBlob, mixAudioTracks } from "@/lib/audioProcessing";
 
@@ -42,6 +46,8 @@ export default function Editor() {
   const [currentTime, setCurrentTime] = useState(0);
   const [showExportModal, setShowExportModal] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
@@ -61,6 +67,18 @@ export default function Editor() {
       audioContextRef.current?.close();
       console.log("🛑 Audio Editor closed");
     };
+  }, []);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "?") {
+        e.preventDefault();
+        setShowShortcuts(true);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   // Setup live playback
@@ -375,6 +393,30 @@ export default function Editor() {
               <span className="hidden sm:inline ml-1">Export</span>
             </Button>
           )}
+
+          <HelpTooltip content="Show keyboard shortcuts (?)">
+            <Button
+              onClick={() => setShowShortcuts(true)}
+              variant="outline"
+              size="sm"
+              className="h-8 sm:h-9 text-xs sm:text-sm"
+              data-testid="button-help"
+            >
+              <HelpCircle className="w-3 h-3 sm:w-4 sm:h-4" />
+            </Button>
+          </HelpTooltip>
+
+          <HelpTooltip content="Open settings">
+            <Button
+              onClick={() => setShowSettings(true)}
+              variant="outline"
+              size="sm"
+              className="h-8 sm:h-9 text-xs sm:text-sm"
+              data-testid="button-settings"
+            >
+              <SettingsIcon className="w-3 h-3 sm:w-4 sm:h-4" />
+            </Button>
+          </HelpTooltip>
         </div>
       </header>
 
@@ -395,6 +437,9 @@ export default function Editor() {
                 zoom={state.zoom}
                 isPlaying={isPlaying}
               />
+
+              {/* Frequency Analyzer */}
+              <FrequencyAnalyzer isPlaying={isPlaying} audioContext={audioContextRef.current} />
               
               <div className="mt-3 sm:mt-4 lg:mt-6">
                 <PlaybackControls
@@ -486,6 +531,10 @@ export default function Editor() {
 
       {/* Console Panel */}
       <ConsolePanel isOpen={true} />
+
+      {/* Modals */}
+      <KeyboardShortcutsModal isOpen={showShortcuts} onClose={() => setShowShortcuts(false)} />
+      <SettingsPanel isOpen={showSettings} onClose={() => setShowSettings(false)} />
     </div>
   );
 }
