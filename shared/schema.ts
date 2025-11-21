@@ -2,19 +2,30 @@ import { z } from "zod";
 import { pgTable, text, integer, timestamp, jsonb, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 
+// Audio track for multi-track editing
+export interface AudioTrack {
+  id: string;
+  name: string;
+  audioData: string; // Base64 encoded
+  volume: number; // 0-100
+  pan: number; // -100 to 100
+  isMuted: boolean;
+  isSolo: boolean;
+  duration: number;
+  sampleRate: number;
+  numberOfChannels: number;
+}
+
 // Database tables
 export const projectsTable = pgTable("projects", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().default("default"),
   name: text("name").notNull(),
   description: text("description"),
-  audioFileName: text("audio_file_name"),
-  duration: doublePrecision("duration").default(0),
-  sampleRate: integer("sample_rate"),
-  numberOfChannels: integer("number_of_channels"),
-  audioData: text("audio_data"),
+  tracks: jsonb("tracks").$type<AudioTrack[]>().default([]),
   effects: jsonb("effects").$type<AudioEffect[]>().default([]),
   selection: jsonb("selection").$type<AudioSelection | null>(),
+  duration: doublePrecision("duration").default(0),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -23,7 +34,7 @@ export type ProjectRow = typeof projectsTable.$inferSelect;
 export const projectInsertSchema = createInsertSchema(projectsTable);
 export type ProjectInsert = z.infer<typeof projectInsertSchema>;
 
-// Audio file metadata
+// Audio file metadata (legacy, kept for compatibility)
 export interface AudioFile {
   id: string;
   name: string;
@@ -106,6 +117,19 @@ export interface AudioSelection {
 }
 
 // Zod schemas for validation
+export const audioTrackSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  audioData: z.string(),
+  volume: z.number().min(0).max(100),
+  pan: z.number().min(-100).max(100),
+  isMuted: z.boolean(),
+  isSolo: z.boolean(),
+  duration: z.number().min(0),
+  sampleRate: z.number(),
+  numberOfChannels: z.number(),
+});
+
 export const panningEffectSchema = z.object({
   id: z.string(),
   type: z.literal("panning"),

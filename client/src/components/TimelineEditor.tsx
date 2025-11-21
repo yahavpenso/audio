@@ -1,12 +1,12 @@
 import { useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ZoomIn, ZoomOut } from "lucide-react";
-import { PanningEffect } from "@shared/schema";
+import { AudioEffect } from "@shared/schema";
 
 interface TimelineEditorProps {
   duration: number;
   currentTime: number;
-  panningEffects: PanningEffect[];
+  effects: AudioEffect[];
   zoom: number;
   onZoomChange: (zoom: number) => void;
   onSeek: (time: number) => void;
@@ -15,7 +15,7 @@ interface TimelineEditorProps {
 export default function TimelineEditor({
   duration,
   currentTime,
-  panningEffects,
+  effects,
   zoom,
   onZoomChange,
   onSeek,
@@ -42,7 +42,7 @@ export default function TimelineEditor({
     ctx.scale(dpr, dpr);
     ctx.clearRect(0, 0, width, height);
 
-    // Draw time ruler
+    // Draw ruler
     const rulerHeight = 30;
     ctx.fillStyle = 'hsl(var(--muted))';
     ctx.fillRect(0, 0, width, rulerHeight);
@@ -55,117 +55,97 @@ export default function TimelineEditor({
     ctx.stroke();
 
     // Draw time markers
-    const timeInterval = Math.max(1, Math.floor(duration / 10));
-    ctx.fillStyle = 'hsl(var(--foreground))';
-    ctx.font = '11px Inter, sans-serif';
-    ctx.textAlign = 'center';
+    ctx.fillStyle = 'hsl(var(--muted-foreground))';
+    ctx.font = '12px system-ui';
+    const pixelsPerSecond = (width / duration) * zoom;
+    const markerInterval = Math.pow(10, Math.floor(Math.log10(1 / pixelsPerSecond)));
 
-    for (let i = 0; i <= duration; i += timeInterval) {
+    for (let i = 0; i <= duration; i += markerInterval) {
       const x = (i / duration) * width * zoom;
-      
-      ctx.strokeStyle = 'hsl(var(--border))';
+      if (x > width) break;
+
       ctx.beginPath();
       ctx.moveTo(x, rulerHeight - 5);
-      ctx.lineTo(x, height);
+      ctx.lineTo(x, rulerHeight);
       ctx.stroke();
-      
-      const mins = Math.floor(i / 60);
-      const secs = Math.floor(i % 60);
-      ctx.fillText(`${mins}:${secs.toString().padStart(2, '0')}`, x, 18);
+
+      if (i % (markerInterval * 5) === 0) {
+        ctx.fillText(i.toFixed(0) + 's', x + 4, 18);
+      }
     }
 
-    // Draw effect markers
-    panningEffects.forEach((effect, index) => {
+    // Draw effect regions
+    effects.forEach((effect) => {
       const startX = (effect.startTime / duration) * width * zoom;
-      const effectWidth = (effect.duration / duration) * width * zoom;
-      
-      ctx.fillStyle = 'hsl(var(--chart-2) / 0.6)';
-      ctx.fillRect(startX, rulerHeight, effectWidth, height - rulerHeight);
-      
-      ctx.strokeStyle = 'hsl(var(--chart-2))';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(startX, rulerHeight, effectWidth, height - rulerHeight);
-      
-      // Effect label
-      ctx.fillStyle = 'hsl(var(--card-foreground))';
-      ctx.font = '500 12px Inter, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.fillText(`Pan ${effect.intensity}%`, startX + 8, rulerHeight + 20);
-      ctx.font = '11px Inter, sans-serif';
-      ctx.fillStyle = 'hsl(var(--muted-foreground))';
-      ctx.fillText(`${effect.duration.toFixed(1)}s`, startX + 8, rulerHeight + 36);
+      const endX = ((effect.startTime + effect.duration) / duration) * width * zoom;
+      const color = getEffectColor(effect.type);
+
+      ctx.fillStyle = color + '40';
+      ctx.fillRect(startX, rulerHeight, endX - startX, height - rulerHeight);
+      ctx.strokeStyle = color;
+      ctx.strokeRect(startX, rulerHeight, endX - startX, height - rulerHeight);
     });
 
     // Draw playhead
     const playheadX = (currentTime / duration) * width * zoom;
-    ctx.strokeStyle = 'hsl(var(--destructive))';
+    ctx.strokeStyle = 'hsl(var(--chart-1))';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(playheadX, 0);
     ctx.lineTo(playheadX, height);
     ctx.stroke();
 
-    // Playhead handle
-    ctx.fillStyle = 'hsl(var(--destructive))';
-    ctx.beginPath();
-    ctx.moveTo(playheadX, 0);
-    ctx.lineTo(playheadX - 6, 12);
-    ctx.lineTo(playheadX + 6, 12);
-    ctx.closePath();
-    ctx.fill();
-  }, [duration, currentTime, panningEffects, zoom]);
+    // Click handler
+    const handleCanvasClick = (e: MouseEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const time = (x / (width * zoom)) * duration;
+      onSeek(Math.max(0, Math.min(time, duration)));
+    };
 
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!canvasRef.current) return;
-    
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const time = (x / (rect.width * zoom)) * duration;
-    
-    onSeek(Math.max(0, Math.min(duration, time)));
-  };
+    canvas.addEventListener('click', handleCanvasClick);
+    return () => canvas.removeEventListener('click', handleCanvasClick);
+  }, [duration, currentTime, effects, zoom, onSeek]);
+
+  function getEffectColor(type: string): string {
+    const colors: Record<string, string> = {
+      panning: 'hsl(var(--chart-2))',
+      reverb: 'hsl(var(--chart-3))',
+      delay: 'hsl(var(--chart-4))',
+      eq: 'hsl(var(--chart-5))',
+      compressor: 'hsl(var(--chart-1))',
+    };
+    return colors[type] || 'hsl(var(--chart-1))';
+  }
 
   return (
-    <div className="h-full flex flex-col bg-background">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border">
-        <span className="text-sm font-medium">Timeline</span>
-        
+    <div className="flex flex-col h-full bg-muted/30">
+      <div className="flex items-center justify-between p-2 border-b border-border">
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => onZoomChange(Math.max(1, zoom - 0.5))}
-            disabled={zoom <= 1}
-            data-testid="button-zoom-out"
+            onClick={() => onZoomChange(Math.max(1, zoom - 1))}
             className="h-8 w-8"
+            data-testid="button-zoom-out"
           >
             <ZoomOut className="w-4 h-4" />
           </Button>
-          
-          <span className="text-xs text-muted-foreground font-mono w-12 text-center">
-            {zoom.toFixed(1)}x
-          </span>
-          
+          <span className="text-xs font-mono text-muted-foreground w-8 text-center">{zoom}x</span>
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => onZoomChange(Math.min(5, zoom + 0.5))}
-            disabled={zoom >= 5}
-            data-testid="button-zoom-in"
+            onClick={() => onZoomChange(Math.min(8, zoom + 1))}
             className="h-8 w-8"
+            data-testid="button-zoom-in"
           >
             <ZoomIn className="w-4 h-4" />
           </Button>
         </div>
       </div>
-      
-      <div ref={containerRef} className="flex-1 overflow-x-auto">
-        <canvas
-          ref={canvasRef}
-          className="cursor-pointer"
-          onClick={handleCanvasClick}
-          data-testid="canvas-timeline"
-        />
+
+      <div ref={containerRef} className="flex-1 overflow-x-auto bg-background">
+        <canvas ref={canvasRef} data-testid="timeline-canvas" />
       </div>
     </div>
   );

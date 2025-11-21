@@ -1,28 +1,31 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Upload, Download, Scissors, Undo2 } from "lucide-react";
+import { Upload, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { AudioFile, AudioEffect, AudioSelection, ExportSettings } from "@shared/schema";
+import { AudioTrack, AudioEffect, AudioSelection, ExportSettings } from "@shared/schema";
 import WaveformVisualization from "@/components/WaveformVisualization";
 import PlaybackControls from "@/components/PlaybackControls";
 import TimelineEditor from "@/components/TimelineEditor";
 import EffectsPanel from "@/components/EffectsPanel";
-import CuttingTools from "@/components/CuttingTools";
+import TrackList from "@/components/TrackList";
 import ExportModal from "@/components/ExportModal";
 import EmptyState from "@/components/EmptyState";
+import { encodeAudioBuffer, decodeAudioTrack, mixAudioTracks } from "@/lib/audioMixing";
+import { exportToWAV, exportToMP3, downloadBlob, mixAudioTracks as mixTracks } from "@/lib/audioProcessing";
 
 export default function Editor() {
-  const [audioFile, setAudioFile] = useState<AudioFile | null>(null);
-  const [audioBuffer, setAudioBuffer] = useState<AudioBuffer | null>(null);
+  const [tracks, setTracks] = useState<AudioTrack[]>([]);
+  const [trackBuffers, setTrackBuffers] = useState<Map<string, AudioBuffer>>(new Map());
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [effects, setEffects] = useState<AudioEffect[]>([]);
   const [selection, setSelection] = useState<AudioSelection | null>(null);
   const [showExportModal, setShowExportModal] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null);
   
   const audioContextRef = useRef<AudioContext | null>(null);
-  const sourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+  const sourceNodesRef = useRef<Map<string, AudioBufferSourceNode>>(new Map());
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const { toast } = useToast();
@@ -35,85 +38,126 @@ export default function Editor() {
     };
   }, []);
 
+  // Get total project duration
+  const projectDuration = Math.max(...tracks.map(t => t.duration), 0) || 0;
+
   const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || !audioContextRef.current) return;
 
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const audioBuffer = await audioContextRef.current!.decodeAudioData(arrayBuffer);
+      const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+      const audioData = await encodeAudioBuffer(audioBuffer);
       
-      const audioFileData: AudioFile = {
+      const newTrack: AudioTrack = {
         id: crypto.randomUUID(),
-        name: file.name,
+        name: file.name.replace(/\.[^/.]+$/, ""),
+        audioData,
+        volume: 100,
+        pan: 0,
+        isMuted: false,
+        isSolo: false,
         duration: audioBuffer.duration,
         sampleRate: audioBuffer.sampleRate,
         numberOfChannels: audioBuffer.numberOfChannels,
       };
 
-      setAudioFile(audioFileData);
-      setAudioBuffer(audioBuffer);
-      setCurrentTime(0);
-      setPanningEffects([]);
-      setSelection(null);
+      setTracks(prev => [...prev, newTrack]);
+      setTrackBuffers(prev => new Map(prev).set(newTrack.id, audioBuffer));
+      setSelectedTrackId(newTrack.id);
       
       toast({
-        title: "Audio loaded successfully",
+        title: "Track added",
         description: `${file.name} (${audioBuffer.duration.toFixed(2)}s)`,
       });
     } catch (error) {
       toast({
         title: "Error loading audio",
-        description: "Could not decode audio file. Please try a different file.",
+        description: "Could not decode audio file.",
         variant: "destructive",
       });
     }
   }, [toast]);
 
-  const handleAddPanningEffect = useCallback((effect: PanningEffect) => {
-    setPanningEffects(prev => [...prev, effect]);
+  const handleAddTrack = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleUpdateTrack = useCallback((id: string, updates: Partial<AudioTrack>) => {
+    setTracks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+  }, []);
+
+  const handleRemoveTrack = useCallback((id: string) => {
+    setTracks(prev => prev.filter(t => t.id !== id));
+    setTrackBuffers(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(id);
+      return newMap;
+    });
+    if (selectedTrackId === id) {
+      setSelectedTrackId(tracks[0]?.id || null);
+    }
+  }, [tracks, selectedTrackId]);
+
+  const handleAddEffect = useCallback((effect: AudioEffect) => {
+    setEffects(prev => [...prev, effect]);
     toast({
-      title: "Panning effect added",
-      description: `Applied at ${effect.startTime.toFixed(2)}s for ${effect.duration.toFixed(2)}s`,
+      title: `${effect.type} effect added`,
+      description: `Applied at ${effect.startTime.toFixed(2)}s`,
     });
   }, [toast]);
 
-  const handleRemovePanningEffect = useCallback((id: string) => {
-    setPanningEffects(prev => prev.filter(e => e.id !== id));
-    toast({
-      title: "Effect removed",
-      description: "Panning effect has been removed",
-    });
-  }, [toast]);
+  const handleRemoveEffect = useCallback((id: string) => {
+    setEffects(prev => prev.filter(e => e.id !== id));
+  }, []);
 
   const handleExport = useCallback(async (settings: ExportSettings) => {
-    if (!audioBuffer) return;
+    if (tracks.length === 0 || !audioContextRef.current) return;
     
     toast({
       title: "Exporting audio...",
-      description: "Processing your audio file with effects",
+      description: "Mixing and processing tracks",
     });
     
     try {
-      // Import audio processing utilities
-      const { applyPanningEffects, exportToWAV, exportToMP3, downloadBlob } = await import("@/lib/audioProcessing");
+      // Decode all tracks
+      const trackData = await Promise.all(
+        tracks.map(async (track) => ({
+          buffer: trackBuffers.get(track.id) || await decodeAudioTrack(audioContextRef.current!, track.audioData),
+          volume: track.volume,
+          pan: track.pan,
+          isMuted: track.isMuted,
+          isSolo: track.isSolo,
+        }))
+      );
+
+      // Create offline context and mix
+      const maxDuration = Math.max(...trackData.map(t => t.buffer.duration));
+      const sampleRate = trackData[0]?.buffer.sampleRate || 44100;
+      const offlineContext = new OfflineAudioContext(2, Math.ceil(maxDuration * sampleRate), sampleRate);
       
-      // Apply all panning effects to the audio
-      const processedBuffer = await applyPanningEffects(audioBuffer, panningEffects);
+      const mixedBuffer = await mixTracks(offlineContext, trackData);
       
-      // Export based on format
+      // Apply effects
+      let finalBuffer = mixedBuffer;
+      if (effects.length > 0) {
+        const { applyAllEffects } = await import("@/lib/audioProcessing");
+        finalBuffer = await applyAllEffects(mixedBuffer, effects);
+      }
+      
+      // Export
       let blob: Blob;
       let filename: string;
       
       if (settings.format === "wav") {
-        blob = exportToWAV(processedBuffer, settings.sampleRate, settings.bitDepth);
-        filename = `${audioFile?.name.replace(/\.[^/.]+$/, "") || "audio"}_export.wav`;
+        blob = exportToWAV(finalBuffer, settings.sampleRate, settings.bitDepth);
+        filename = "exported_audio.wav";
       } else {
-        blob = exportToMP3(processedBuffer, settings.bitrate);
-        filename = `${audioFile?.name.replace(/\.[^/.]+$/, "") || "audio"}_export.mp3`;
+        blob = exportToMP3(finalBuffer, settings.bitrate);
+        filename = "exported_audio.mp3";
       }
       
-      // Download the file
       downloadBlob(blob, filename);
       
       toast({
@@ -124,13 +168,12 @@ export default function Editor() {
       console.error("Export error:", error);
       toast({
         title: "Export failed",
-        description: "Could not export audio file. Please try again.",
         variant: "destructive",
       });
     }
     
     setShowExportModal(false);
-  }, [audioBuffer, audioFile, panningEffects, toast]);
+  }, [tracks, trackBuffers, effects, toast]);
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -141,6 +184,7 @@ export default function Editor() {
             <span className="text-primary-foreground font-semibold text-lg">A</span>
           </div>
           <h1 className="text-xl font-semibold tracking-tight">Audio Editor</h1>
+          <span className="text-xs text-muted-foreground ml-4">{tracks.length} tracks</span>
         </div>
         
         <div className="flex items-center gap-2">
@@ -153,15 +197,15 @@ export default function Editor() {
             data-testid="input-audio-file"
           />
           <Button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={handleAddTrack}
             variant="outline"
-            data-testid="button-upload"
+            data-testid="button-add-track"
           >
             <Upload className="w-4 h-4" />
-            Import Audio
+            Add Track
           </Button>
-          
-          {audioFile && (
+
+          {tracks.length > 0 && (
             <Button
               onClick={() => setShowExportModal(true)}
               data-testid="button-export"
@@ -173,90 +217,86 @@ export default function Editor() {
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden">
-        {!audioFile ? (
-          <EmptyState onUpload={() => fileInputRef.current?.click()} />
-        ) : (
-          <>
-            {/* Central Workspace */}
-            <div className="flex-1 flex flex-col overflow-hidden">
-              {/* Waveform Display */}
-              <div className="flex-1 flex flex-col p-6 overflow-auto">
-                <WaveformVisualization
-                  audioBuffer={audioBuffer}
-                  currentTime={currentTime}
-                  panningEffects={panningEffects}
-                  selection={selection}
-                  onSelectionChange={setSelection}
-                  zoom={zoom}
+      {tracks.length === 0 ? (
+        <EmptyState onUpload={handleAddTrack} />
+      ) : (
+        <>
+          {/* Main Content Area */}
+          <div className="flex-1 overflow-hidden flex flex-col">
+            {/* Waveform and Playback */}
+            <div className="flex-1 border-b border-border overflow-hidden flex flex-col p-6">
+              <WaveformVisualization
+                audioBuffer={trackBuffers.get(selectedTrackId || "") || null}
+                currentTime={currentTime}
+                panningEffects={effects.filter((e): e is any => e.type === "panning")}
+                selection={selection}
+                onSelectionChange={setSelection}
+                zoom={zoom}
+                isPlaying={isPlaying}
+              />
+              
+              <div className="mt-6">
+                <PlaybackControls
+                  audioBuffer={trackBuffers.get(selectedTrackId || "") || null}
+                  audioContext={audioContextRef.current}
                   isPlaying={isPlaying}
-                />
-                
-                {/* Playback Controls */}
-                <div className="mt-6">
-                  <PlaybackControls
-                    audioBuffer={audioBuffer}
-                    audioContext={audioContextRef.current}
-                    isPlaying={isPlaying}
-                    currentTime={currentTime}
-                    duration={audioFile.duration}
-                    panningEffects={panningEffects}
-                    onPlayPause={setIsPlaying}
-                    onTimeUpdate={setCurrentTime}
-                    onSeek={setCurrentTime}
-                    sourceNodeRef={sourceNodeRef}
-                  />
-                </div>
-              </div>
-
-              {/* Timeline Editor */}
-              <div className="h-32 border-t border-border">
-                <TimelineEditor
-                  duration={audioFile.duration}
                   currentTime={currentTime}
-                  panningEffects={panningEffects}
-                  zoom={zoom}
-                  onZoomChange={setZoom}
+                  duration={projectDuration}
+                  effects={effects}
+                  onPlayPause={setIsPlaying}
+                  onTimeUpdate={setCurrentTime}
                   onSeek={setCurrentTime}
+                  sourceNodeRef={{ current: sourceNodesRef.current.get(selectedTrackId || "") || null } as any}
                 />
               </div>
             </div>
 
-            {/* Right Sidebar - Effect Controls */}
-            <div className="w-80 border-l border-border flex flex-col overflow-hidden bg-card">
-              <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                {/* Cutting Tools */}
-                <CuttingTools
-                  selection={selection}
-                  duration={audioFile.duration}
-                  onSelectionChange={setSelection}
-                  audioBuffer={audioBuffer}
-                  setAudioBuffer={setAudioBuffer}
-                  setAudioFile={setAudioFile}
-                />
+            {/* Timeline */}
+            <div className="h-32 border-t border-border">
+              <TimelineEditor
+                duration={projectDuration}
+                currentTime={currentTime}
+                effects={effects}
+                zoom={zoom}
+                onZoomChange={setZoom}
+                onSeek={setCurrentTime}
+              />
+            </div>
+          </div>
 
-                {/* Panning Effect Panel */}
-                <PanningEffectPanel
-                  duration={audioFile.duration}
+          {/* Right Sidebar */}
+          <div className="w-80 border-l border-border flex flex-col overflow-hidden bg-card">
+            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+              <TrackList
+                tracks={tracks}
+                onUpdateTrack={handleUpdateTrack}
+                onRemoveTrack={handleRemoveTrack}
+                onAddTrack={handleAddTrack}
+                selectedTrackId={selectedTrackId}
+                onSelectTrack={setSelectedTrackId}
+              />
+              
+              <div className="border-t pt-4">
+                <EffectsPanel
+                  duration={projectDuration}
                   currentTime={currentTime}
-                  panningEffects={panningEffects}
-                  onAddEffect={handleAddPanningEffect}
-                  onRemoveEffect={handleRemovePanningEffect}
+                  effects={effects}
+                  onAddEffect={handleAddEffect}
+                  onRemoveEffect={handleRemoveEffect}
                 />
               </div>
             </div>
-          </>
-        )}
-      </div>
+          </div>
 
-      {/* Export Modal */}
-      {showExportModal && audioFile && (
-        <ExportModal
-          audioFile={audioFile}
-          onClose={() => setShowExportModal(false)}
-          onExport={handleExport}
-        />
+          {/* Export Modal */}
+          {showExportModal && (
+            <ExportModal
+              audioFile={{ id: "export", name: "Project", duration: projectDuration, sampleRate: 44100, numberOfChannels: 2 }}
+              onClose={() => setShowExportModal(false)}
+              onExport={handleExport}
+            />
+          )}
+        </>
       )}
     </div>
   );

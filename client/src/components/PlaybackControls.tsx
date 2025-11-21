@@ -2,7 +2,7 @@ import { useEffect, useCallback, useState, RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Play, Pause, Square, Volume2 } from "lucide-react";
-import { PanningEffect } from "@shared/schema";
+import { AudioEffect } from "@shared/schema";
 
 interface PlaybackControlsProps {
   audioBuffer: AudioBuffer | null;
@@ -10,7 +10,7 @@ interface PlaybackControlsProps {
   isPlaying: boolean;
   currentTime: number;
   duration: number;
-  panningEffects: PanningEffect[];
+  effects: AudioEffect[];
   onPlayPause: (playing: boolean) => void;
   onTimeUpdate: (time: number) => void;
   onSeek: (time: number) => void;
@@ -23,39 +23,18 @@ export default function PlaybackControls({
   isPlaying,
   currentTime,
   duration,
-  panningEffects,
+  effects,
   onPlayPause,
   onTimeUpdate,
   onSeek,
   sourceNodeRef,
 }: PlaybackControlsProps) {
   const [volume, setVolume] = useState([80]);
-  const [playbackStartContextTime, setPlaybackStartContextTime] = useState(0);
-  const [playbackOffset, setPlaybackOffset] = useState(0);
-
-  // Update playback time - single source of truth
-  useEffect(() => {
-    if (!isPlaying || !audioContext) return;
-
-    const interval = setInterval(() => {
-      const currentPosition = audioContext.currentTime - playbackStartContextTime + playbackOffset;
-      
-      if (currentPosition >= duration) {
-        onPlayPause(false);
-        onTimeUpdate(duration);
-      } else {
-        onTimeUpdate(currentPosition);
-      }
-    }, 50);
-
-    return () => clearInterval(interval);
-  }, [isPlaying, playbackStartContextTime, playbackOffset, duration, audioContext, onPlayPause, onTimeUpdate]);
 
   const handlePlayPause = useCallback(async () => {
     if (!audioBuffer || !audioContext) return;
 
     if (isPlaying) {
-      // Stop playback
       if (sourceNodeRef.current) {
         sourceNodeRef.current.stop();
         sourceNodeRef.current.disconnect();
@@ -63,23 +42,17 @@ export default function PlaybackControls({
       }
       onPlayPause(false);
     } else {
-      // Start playback with real-time panning effects
       const { createRealtimeAudioSource } = await import("@/lib/audioProcessing");
-      
       const { source, gainNode } = createRealtimeAudioSource(
         audioContext,
         audioBuffer,
-        panningEffects,
+        effects,
         currentTime,
         volume[0] / 100
       );
       
       source.start(0, currentTime);
       sourceNodeRef.current = source;
-      
-      // Set single source of truth for playback position
-      setPlaybackStartContextTime(audioContext.currentTime);
-      setPlaybackOffset(currentTime);
       onPlayPause(true);
       
       source.onended = () => {
@@ -88,7 +61,7 @@ export default function PlaybackControls({
         }
       };
     }
-  }, [audioBuffer, audioContext, isPlaying, currentTime, volume, panningEffects, onPlayPause, sourceNodeRef]);
+  }, [audioBuffer, audioContext, isPlaying, currentTime, volume, effects, onPlayPause, sourceNodeRef]);
 
   const handleStop = useCallback(() => {
     if (sourceNodeRef.current) {
@@ -100,41 +73,6 @@ export default function PlaybackControls({
     onSeek(0);
   }, [onPlayPause, onSeek, sourceNodeRef]);
 
-  const handleSeek = useCallback(async (value: number[]) => {
-    const newTime = (value[0] / 100) * duration;
-    
-    if (isPlaying && sourceNodeRef.current && audioBuffer && audioContext) {
-      // Restart playback from new position with effects
-      sourceNodeRef.current.stop();
-      sourceNodeRef.current.disconnect();
-      
-      const { createRealtimeAudioSource } = await import("@/lib/audioProcessing");
-      
-      const { source } = createRealtimeAudioSource(
-        audioContext,
-        audioBuffer,
-        panningEffects,
-        newTime,
-        volume[0] / 100
-      );
-      
-      source.start(0, newTime);
-      sourceNodeRef.current = source;
-      
-      // Update single source of truth for new position
-      setPlaybackStartContextTime(audioContext.currentTime);
-      setPlaybackOffset(newTime);
-      
-      source.onended = () => {
-        if (sourceNodeRef.current === source) {
-          onPlayPause(false);
-        }
-      };
-    }
-    
-    onSeek(newTime);
-  }, [duration, isPlaying, audioBuffer, audioContext, volume, panningEffects, onPlayPause, onSeek, sourceNodeRef]);
-
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
@@ -144,7 +82,6 @@ export default function PlaybackControls({
 
   return (
     <div className="space-y-4">
-      {/* Transport Controls */}
       <div className="flex items-center justify-center gap-2">
         <Button
           variant="outline"
@@ -172,7 +109,6 @@ export default function PlaybackControls({
         </Button>
       </div>
 
-      {/* Time Display */}
       <div className="flex items-center justify-between text-sm font-mono">
         <span className="text-foreground font-medium" data-testid="text-current-time">
           {formatTime(currentTime)}
@@ -182,10 +118,9 @@ export default function PlaybackControls({
         </span>
       </div>
 
-      {/* Progress Slider */}
       <Slider
         value={[duration > 0 ? (currentTime / duration) * 100 : 0]}
-        onValueChange={handleSeek}
+        onValueChange={(value) => onSeek((value[0] / 100) * duration)}
         max={100}
         step={0.1}
         disabled={!audioBuffer}
@@ -193,7 +128,6 @@ export default function PlaybackControls({
         className="cursor-pointer"
       />
 
-      {/* Volume Control */}
       <div className="flex items-center gap-3">
         <Volume2 className="w-4 h-4 text-muted-foreground" />
         <Slider

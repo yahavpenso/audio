@@ -1,4 +1,4 @@
-import { AudioEffect, PanningEffect } from "@shared/schema";
+import { AudioEffect, PanningEffect, AudioTrack } from "@shared/schema";
 import lamejs from "lamejs";
 
 /**
@@ -21,10 +21,8 @@ export async function applyAllEffects(
   const source = offlineContext.createBufferSource();
   source.buffer = audioBuffer;
 
-  // Create effect chains
   let prevNode: AudioNode = source;
 
-  // Apply each effect type
   const sortedEffects = [...effects].sort((a, b) => a.startTime - b.startTime);
   
   for (const effect of sortedEffects) {
@@ -47,6 +45,86 @@ export async function applyAllEffects(
   return await offlineContext.startRendering();
 }
 
+/**
+ * Mix multiple audio tracks with volume and pan
+ */
+export async function mixAudioTracks(
+  audioContext: OfflineAudioContext,
+  trackData: Array<{
+    buffer: AudioBuffer;
+    volume: number;
+    pan: number;
+    isMuted: boolean;
+    isSolo: boolean;
+  }>
+): Promise<AudioBuffer> {
+  if (trackData.length === 0) {
+    return audioContext.createBuffer(2, audioContext.sampleRate, audioContext.sampleRate);
+  }
+
+  // Check if any track is solo
+  const hasSolo = trackData.some((t) => t.isSolo);
+
+  for (const track of trackData) {
+    if (track.isMuted || (hasSolo && !track.isSolo)) continue;
+
+    const source = audioContext.createBufferSource();
+    source.buffer = track.buffer;
+
+    const volumeGain = audioContext.createGain();
+    volumeGain.gain.value = track.volume / 100;
+
+    const panner = audioContext.createStereoPanner();
+    panner.pan.value = track.pan / 100;
+
+    source.connect(volumeGain);
+    volumeGain.connect(panner);
+    panner.connect(audioContext.destination);
+
+    source.start(0);
+  }
+
+  return await audioContext.startRendering();
+}
+
+/**
+ * Create real-time audio playback with all effects
+ */
+export function createRealtimeAudioSource(
+  audioContext: AudioContext,
+  audioBuffer: AudioBuffer,
+  effects: AudioEffect[],
+  startTime: number,
+  volume: number
+): { source: AudioBufferSourceNode; gainNode: GainNode } {
+  const source = audioContext.createBufferSource();
+  source.buffer = audioBuffer;
+
+  const gainNode = audioContext.createGain();
+  gainNode.gain.value = volume;
+
+  let prevNode: AudioNode = source;
+
+  for (const effect of effects) {
+    if (effect.type === "panning") {
+      prevNode = createPanningEffect(audioContext, prevNode, effect);
+    } else if (effect.type === "reverb") {
+      prevNode = createReverbEffect(audioContext, prevNode, effect);
+    } else if (effect.type === "delay") {
+      prevNode = createDelayEffect(audioContext, prevNode, effect);
+    } else if (effect.type === "eq") {
+      prevNode = createEQEffect(audioContext, prevNode, effect);
+    } else if (effect.type === "compressor") {
+      prevNode = createCompressorEffect(audioContext, prevNode, effect);
+    }
+  }
+
+  prevNode.connect(gainNode);
+  gainNode.connect(audioContext.destination);
+
+  return { source, gainNode };
+}
+
 function createPanningEffect(ctx: AudioContext | OfflineAudioContext, input: AudioNode, effect: any): AudioNode {
   const panner = ctx.createStereoPanner();
   const panValue = (effect.intensity / 100) * 2 - 1;
@@ -63,13 +141,11 @@ function createPanningEffect(ctx: AudioContext | OfflineAudioContext, input: Aud
 function createReverbEffect(ctx: AudioContext | OfflineAudioContext, input: AudioNode, effect: any): AudioNode {
   const dryGain = ctx.createGain();
   const wetGain = ctx.createGain();
-  const convolverGain = ctx.createGain();
   
   const wetAmount = effect.dryWet / 100;
   dryGain.gain.value = 1 - wetAmount;
   wetGain.gain.value = wetAmount;
   
-  // Create simple reverb using delay and feedback
   const delay = ctx.createDelay(effect.decay);
   const feedback = ctx.createGain();
   feedback.gain.value = 0.3;
@@ -82,7 +158,6 @@ function createReverbEffect(ctx: AudioContext | OfflineAudioContext, input: Audi
   feedback.connect(delay);
   delay.connect(wetGain);
   
-  // Merge dry and wet
   const merge = ctx.createGain();
   dryGain.connect(merge);
   wetGain.connect(merge);
@@ -121,18 +196,15 @@ function createEQEffect(ctx: AudioContext | OfflineAudioContext, input: AudioNod
   const mid = ctx.createBiquadFilter();
   const highShelf = ctx.createBiquadFilter();
   
-  // Low shelf (bass)
   lowShelf.type = "lowshelf";
   lowShelf.frequency.value = 200;
   lowShelf.gain.value = effect.lowGain;
   
-  // Mid peaking
   mid.type = "peaking";
   mid.frequency.value = 1000;
   mid.Q.value = 1;
   mid.gain.value = effect.midGain;
   
-  // High shelf (treble)
   highShelf.type = "highshelf";
   highShelf.frequency.value = 3000;
   highShelf.gain.value = effect.highGain;
@@ -146,7 +218,7 @@ function createEQEffect(ctx: AudioContext | OfflineAudioContext, input: AudioNod
 
 function createCompressorEffect(ctx: AudioContext | OfflineAudioContext, input: AudioNode, effect: any): AudioNode {
   if (!("createDynamicsCompressor" in ctx)) {
-    return input; // Fallback if not supported
+    return input;
   }
   
   const compressor = (ctx as any).createDynamicsCompressor();
@@ -159,48 +231,6 @@ function createCompressorEffect(ctx: AudioContext | OfflineAudioContext, input: 
   return compressor;
 }
 
-/**
- * Create real-time audio playback with all effects
- */
-export function createRealtimeAudioSource(
-  audioContext: AudioContext,
-  audioBuffer: AudioBuffer,
-  effects: AudioEffect[],
-  startTime: number,
-  volume: number
-): { source: AudioBufferSourceNode; gainNode: GainNode } {
-  const source = audioContext.createBufferSource();
-  source.buffer = audioBuffer;
-
-  const gainNode = audioContext.createGain();
-  gainNode.gain.value = volume;
-
-  let prevNode: AudioNode = source;
-
-  // Apply effects in order
-  for (const effect of effects) {
-    if (effect.type === "panning") {
-      prevNode = createPanningEffect(audioContext, prevNode, effect);
-    } else if (effect.type === "reverb") {
-      prevNode = createReverbEffect(audioContext, prevNode, effect);
-    } else if (effect.type === "delay") {
-      prevNode = createDelayEffect(audioContext, prevNode, effect);
-    } else if (effect.type === "eq") {
-      prevNode = createEQEffect(audioContext, prevNode, effect);
-    } else if (effect.type === "compressor") {
-      prevNode = createCompressorEffect(audioContext, prevNode, effect);
-    }
-  }
-
-  prevNode.connect(gainNode);
-  gainNode.connect(audioContext.destination);
-
-  return { source, gainNode };
-}
-
-/**
- * Export audio buffer to WAV format
- */
 export function exportToWAV(
   audioBuffer: AudioBuffer,
   sampleRate: number = 44100,
@@ -265,9 +295,6 @@ export function exportToWAV(
   return new Blob([arrayBuffer], { type: 'audio/wav' });
 }
 
-/**
- * Export audio buffer to MP3 format
- */
 export function exportToMP3(audioBuffer: AudioBuffer, bitrate: number = 192): Blob {
   const mp3encoder = new lamejs.Mp3Encoder(
     audioBuffer.numberOfChannels,
